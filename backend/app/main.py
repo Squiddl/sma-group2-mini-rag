@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 
 from app.database import get_db, init_db
 from models.database import Chat, Message, Document
@@ -46,9 +46,35 @@ async def lifespan(app: FastAPI):
     doc_processor = DocumentProcessor()
     rag_service = RAGService(vector_store_service, reranker_service, doc_processor)
     
+    # Sync document status with Qdrant on startup
+    sync_documents_with_qdrant()
+    
     yield
     
     # Shutdown (cleanup if needed)
+
+
+def sync_documents_with_qdrant():
+    """Mark documents as unprocessed if they're not in Qdrant anymore"""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        documents = db.query(Document).filter(Document.processed == True).all()
+        synced_count = 0
+        for doc in documents:
+            if not vector_store_service.document_exists(doc.id):
+                logger.info("Document %s (%s) not found in Qdrant, marking as unprocessed", doc.id, doc.filename)
+                doc.processed = False
+                doc.num_chunks = 0
+                synced_count += 1
+        if synced_count > 0:
+            db.commit()
+            logger.info("Synced %d documents with Qdrant status", synced_count)
+    except Exception as e:
+        logger.exception("Failed to sync documents with Qdrant: %s", e)
+        db.rollback()
+    finally:
+        db.close()
 
 
 # Initialize FastAPI app
@@ -171,6 +197,73 @@ async def list_documents(db: Session = Depends(get_db)):
     return documents
 
 
+@app.post("/documents/{doc_id}/reprocess", response_model=DocumentUploadResponse)
+async def reprocess_document(doc_id: int, db: Session = Depends(get_db)):
+    """Reprocess a document that is no longer in Qdrant"""
+    document = db.query(Document).filter(Document.id == doc_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    if not document.file_path or not os.path.exists(document.file_path):
+        raise HTTPException(status_code=400, detail="Document file not found on disk")
+    
+    try:
+        # Extract text
+        text = FileHandler.extract_text(document.file_path)
+        
+        # Process document
+        pickle_path = os.path.join(settings.data_dir, "pickles", f"doc_{document.id}.pkl")
+        chunks = doc_processor.process_document(document.id, text, pickle_path)
+        
+        # Add to vector store
+        vector_store_service.add_documents(document.id, chunks)
+        
+        # Update document record
+        document.pickle_path = pickle_path
+        document.processed = True
+        document.num_chunks = len(chunks)
+        db.commit()
+        db.refresh(document)
+        
+        return document
+        
+    except Exception as e:
+        db.rollback()
+        logger.exception("Failed to reprocess document %s: %s", document.filename, e)
+        raise HTTPException(status_code=500, detail=f"Error reprocessing document: {str(e)}")
+
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(doc_id: int, db: Session = Depends(get_db)):
+    """Delete a document from database and Qdrant"""
+    document = db.query(Document).filter(Document.id == doc_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        # Delete from Qdrant
+        vector_store_service.delete_document(doc_id)
+        
+        # Delete pickle file if exists
+        if document.pickle_path and os.path.exists(document.pickle_path):
+            os.remove(document.pickle_path)
+        
+        # Delete uploaded file if exists
+        if document.file_path and os.path.exists(document.file_path):
+            os.remove(document.file_path)
+        
+        # Delete from database
+        db.delete(document)
+        db.commit()
+        
+        return {"status": "deleted"}
+        
+    except Exception as e:
+        db.rollback()
+        logger.exception("Failed to delete document %s: %s", doc_id, e)
+        raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
+
+
 # Query endpoint
 def _format_sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -227,6 +320,9 @@ async def query_documents(request: QueryRequest, db: Session = Depends(get_db)):
 @app.post("/query/stream")
 async def query_documents_stream(request: QueryRequest, db: Session = Depends(get_db)):
     """Stream query responses for incremental rendering on the frontend."""
+    import queue
+    import threading
+    
     try:
         chat = db.query(Chat).filter(Chat.id == request.chat_id).first()
         if not chat:
@@ -243,8 +339,6 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
         db.add(user_message)
         db.commit()
 
-        contexts, sources = rag_service.retrieve_and_rerank(request.query, db)
-
     except HTTPException:
         raise
     except Exception as e:
@@ -252,9 +346,73 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
         logger.exception("Failed to prepare streaming response: %s", e)
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
+    # Queue for real-time thinking events
+    thinking_queue: queue.Queue = queue.Queue()
+    retrieval_result = {"contexts": [], "sources": [], "thinking_steps": [], "error": None}
+    retrieval_done = threading.Event()
+
+    def run_retrieval():
+        """Run retrieval in background thread, pushing thinking events to queue."""
+        try:
+            def on_thinking(step):
+                thinking_queue.put(("thinking", step))
+            
+            contexts, sources, thinking_steps = rag_service.multi_query_retrieve_and_rerank(
+                request.query, db, on_thinking=on_thinking
+            )
+            retrieval_result["contexts"] = contexts
+            retrieval_result["sources"] = sources
+            retrieval_result["thinking_steps"] = thinking_steps
+        except Exception as e:
+            retrieval_result["error"] = str(e)
+        finally:
+            retrieval_done.set()
+            thinking_queue.put(("done", None))
+
+    # Start retrieval in background
+    retrieval_thread = threading.Thread(target=run_retrieval)
+    retrieval_thread.start()
+
     def event_generator():
         accumulated_answer = ""
+        
         try:
+            # First, stream thinking events as they come in real-time
+            while True:
+                try:
+                    event_type, data = thinking_queue.get(timeout=0.1)
+                    if event_type == "done":
+                        break
+                    elif event_type == "thinking":
+                        yield _format_sse_event({
+                            "type": "thinking",
+                            "step": data
+                        })
+                except queue.Empty:
+                    # Check if retrieval is done
+                    if retrieval_done.is_set():
+                        # Drain any remaining events
+                        while not thinking_queue.empty():
+                            try:
+                                event_type, data = thinking_queue.get_nowait()
+                                if event_type == "thinking":
+                                    yield _format_sse_event({
+                                        "type": "thinking",
+                                        "step": data
+                                    })
+                            except queue.Empty:
+                                break
+                        break
+            
+            # Wait for retrieval thread to complete
+            retrieval_thread.join(timeout=60)
+            
+            if retrieval_result["error"]:
+                raise Exception(retrieval_result["error"])
+            
+            contexts = retrieval_result["contexts"]
+            sources = retrieval_result["sources"]
+            
             if not contexts:
                 answer_text = "I couldn't find relevant information in the documents to answer your question."
                 assistant_message = Message(

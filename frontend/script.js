@@ -278,17 +278,77 @@ function renderDocuments() {
         docItem.className = 'document-item';
         
         const date = new Date(doc.uploaded_at).toLocaleDateString();
-        const status = doc.processed ? 'processed' : 'processing';
-        const statusText = doc.processed ? `✓ ${doc.num_chunks} chunks` : 'Processing...';
+        const isProcessed = doc.processed;
+        const status = isProcessed ? 'processed' : 'unprocessed';
+        const statusText = isProcessed ? `✓ ${doc.num_chunks} chunks` : '⚠ Not in vector store';
         
         docItem.innerHTML = `
             <div class="document-name">${escapeHtml(doc.filename)}</div>
             <div class="document-info">${date}</div>
             <div class="document-status ${status}">${statusText}</div>
+            <div class="document-actions">
+                ${!isProcessed ? `<button class="btn-reprocess" data-id="${doc.id}">🔄 Reprocess</button>` : ''}
+                <button class="btn-delete-doc" data-id="${doc.id}">🗑️</button>
+            </div>
         `;
+        
+        // Add event listeners
+        const reprocessBtn = docItem.querySelector('.btn-reprocess');
+        if (reprocessBtn) {
+            reprocessBtn.addEventListener('click', () => reprocessDocument(doc.id));
+        }
+        
+        const deleteBtn = docItem.querySelector('.btn-delete-doc');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => deleteDocument(doc.id));
+        }
         
         documentsList.appendChild(docItem);
     });
+}
+
+async function reprocessDocument(docId) {
+    try {
+        showLoading('Reprocessing document...');
+        const response = await fetch(`${API_BASE}/documents/${docId}/reprocess`, {
+            method: 'POST',
+        });
+        
+        if (!response.ok) {
+            throw new Error('Reprocess failed');
+        }
+        
+        await loadDocuments();
+        hideLoading();
+        showToast('Document reprocessed successfully', 'success');
+    } catch (error) {
+        hideLoading();
+        showToast('Failed to reprocess document', 'error');
+        console.error(error);
+    }
+}
+
+async function deleteDocument(docId) {
+    if (!confirm('Are you sure you want to delete this document?')) return;
+    
+    try {
+        showLoading('Deleting document...');
+        const response = await fetch(`${API_BASE}/documents/${docId}`, {
+            method: 'DELETE',
+        });
+        
+        if (!response.ok) {
+            throw new Error('Delete failed');
+        }
+        
+        await loadDocuments();
+        hideLoading();
+        showToast('Document deleted successfully', 'success');
+    } catch (error) {
+        hideLoading();
+        showToast('Failed to delete document', 'error');
+        console.error(error);
+    }
 }
 
 async function handleFileUpload(event) {
@@ -354,6 +414,23 @@ function createMessageElement(role, content, options = {}) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
+    // For assistant messages, add thinking section first (collapsed)
+    let thinkingContainer = null;
+    if (role === 'assistant') {
+        thinkingContainer = document.createElement('details');
+        thinkingContainer.className = 'thinking-container';
+        
+        const thinkingSummary = document.createElement('summary');
+        thinkingSummary.textContent = '🧠 Thinking...';
+        thinkingContainer.appendChild(thinkingSummary);
+        
+        const thinkingContent = document.createElement('div');
+        thinkingContent.className = 'thinking-content';
+        thinkingContainer.appendChild(thinkingContent);
+        
+        messageDiv.appendChild(thinkingContainer);
+    }
+
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     contentDiv.innerHTML = renderMarkdown(content);
@@ -372,7 +449,7 @@ function createMessageElement(role, content, options = {}) {
         messageDiv.appendChild(sourcesContainer);
     }
 
-    return { messageDiv, contentDiv, sourcesContainer, timeDiv };
+    return { messageDiv, contentDiv, sourcesContainer, timeDiv, thinkingContainer };
 }
 
 function buildSourcesElement(sources) {
@@ -439,6 +516,7 @@ async function streamQuery(query, assistantElements) {
     const decoder = new TextDecoder();
     let buffer = '';
     let accumulated = '';
+    let thinkingSteps = [];
 
     while (true) {
         const { value, done } = await reader.read();
@@ -470,7 +548,13 @@ async function streamQuery(query, assistantElements) {
                 continue;
             }
 
-            if (payload.type === 'chunk') {
+            if (payload.type === 'thinking') {
+                // Handle thinking step
+                const step = payload.step;
+                thinkingSteps.push(step);
+                updateThinkingDisplay(assistantElements, thinkingSteps);
+                scrollToBottom();
+            } else if (payload.type === 'chunk') {
                 if (payload.content) {
                     accumulated += payload.content;
                     assistantElements.contentDiv.innerHTML = renderMarkdown(accumulated);
@@ -479,6 +563,8 @@ async function streamQuery(query, assistantElements) {
             } else if (payload.type === 'end') {
                 accumulated = payload.content || accumulated;
                 assistantElements.contentDiv.innerHTML = renderMarkdown(accumulated);
+                // Finalize thinking display
+                finalizeThinkingDisplay(assistantElements, thinkingSteps);
                 if (payload.sources && payload.sources.length > 0) {
                     if (assistantElements.sourcesContainer) {
                         assistantElements.sourcesContainer.remove();
@@ -492,4 +578,89 @@ async function streamQuery(query, assistantElements) {
             }
         }
     }
+}
+
+function updateThinkingDisplay(assistantElements, thinkingSteps) {
+    if (!assistantElements.thinkingContainer) return;
+    
+    const thinkingContent = assistantElements.thinkingContainer.querySelector('.thinking-content');
+    if (!thinkingContent) return;
+    
+    // Update summary to show current step
+    const summary = assistantElements.thinkingContainer.querySelector('summary');
+    const lastStep = thinkingSteps[thinkingSteps.length - 1];
+    if (lastStep && summary) {
+        summary.textContent = `🧠 ${lastStep.message}`;
+    }
+    
+    // Build thinking log
+    let html = '<ul class="thinking-steps">';
+    thinkingSteps.forEach((step, index) => {
+        const icon = getThinkingIcon(step.type);
+        html += `<li class="thinking-step ${step.type}">`;
+        html += `<span class="step-icon">${icon}</span>`;
+        html += `<span class="step-message">${escapeHtml(step.message)}</span>`;
+        
+        // Show details if available
+        if (step.details) {
+            if (Array.isArray(step.details)) {
+                html += '<ul class="step-details">';
+                step.details.forEach(detail => {
+                    if (typeof detail === 'string') {
+                        html += `<li>${escapeHtml(detail)}</li>`;
+                    } else if (detail.text && detail.score !== undefined) {
+                        html += `<li><span class="score">[${detail.score.toFixed(3)}]</span> ${escapeHtml(detail.text)}</li>`;
+                    } else {
+                        html += `<li>${escapeHtml(JSON.stringify(detail))}</li>`;
+                    }
+                });
+                html += '</ul>';
+            }
+        }
+        
+        html += '</li>';
+    });
+    html += '</ul>';
+    
+    thinkingContent.innerHTML = html;
+}
+
+function finalizeThinkingDisplay(assistantElements, thinkingSteps) {
+    if (!assistantElements.thinkingContainer) return;
+    
+    const summary = assistantElements.thinkingContainer.querySelector('summary');
+    if (summary) {
+        const stepCount = thinkingSteps.length;
+        summary.textContent = `🧠 Thinking (${stepCount} steps) - click to expand`;
+    }
+    
+    // Collapse the thinking section after completion
+    assistantElements.thinkingContainer.removeAttribute('open');
+}
+
+function getThinkingIcon(stepType) {
+    const icons = {
+        'start': '🚀',
+        'generating_queries': '✍️',
+        'queries_generated': '📝',
+        'searching': '🔍',
+        'search_complete': '✅',
+        'deduplication': '🔄',
+        'reranking': '⚖️',
+        'rerank_complete': '📊',
+        'loading_parents': '📂',
+        'complete': '✅',
+        'no_results': '❌',
+        'low_score': '⚠️',
+        'retry_start': '🔁',
+        'retry_queries_generated': '📝',
+        'retry_searching': '🔍',
+        'retry_deduplication': '🔄',
+        'retry_reranking': '⚖️',
+        'retry_rerank_complete': '📊',
+        'retry_loading_parents': '📂',
+        'retry_complete': '✅',
+        'retry_no_results': '❌'
+    };
+    return icons[stepType] || '•';
 }

@@ -124,6 +124,39 @@ class VectorStoreService:
             else:
                 raise
     
+    def document_exists(self, doc_id: int) -> bool:
+        """Check if a document has any chunks in the vector store"""
+        try:
+            results, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter={
+                    "must": [
+                        {"key": "doc_id", "match": {"value": doc_id}}
+                    ]
+                },
+                limit=1
+            )
+            return len(results) > 0
+        except Exception as e:
+            logger.warning("Failed to check document existence in Qdrant: %s", e)
+            return False
+
+    def delete_document(self, doc_id: int) -> None:
+        """Delete all chunks for a document from the vector store"""
+        try:
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector={
+                    "filter": {
+                        "must": [
+                            {"key": "doc_id", "match": {"value": doc_id}}
+                        ]
+                    }
+                }
+            )
+        except Exception as e:
+            logger.warning("Failed to delete document %s from Qdrant: %s", doc_id, e)
+
     def search(self, query: str, top_k: int = 20) -> List[Dict[str, Any]]:
         """Search for similar documents"""
         query_embedding = self.embedding_service.embed_text(query)
