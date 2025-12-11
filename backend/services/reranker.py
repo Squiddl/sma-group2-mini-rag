@@ -1,5 +1,5 @@
-from sentence_transformers import CrossEncoder
 from typing import List, Dict, Any
+from FlagEmbedding import FlagReranker
 from config.settings import settings
 
 
@@ -7,7 +7,7 @@ class RerankerService:
     """Service for reranking retrieved documents"""
     
     def __init__(self):
-        self.model = CrossEncoder(settings.reranker_model)
+        self.model = FlagReranker(settings.reranker_model, use_fp16=False)
     
     def rerank(self, query: str, documents: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -24,14 +24,9 @@ class RerankerService:
         if not documents:
             return []
         
-        # Prepare pairs for reranking
-        pairs = [[query, doc['text']] for doc in documents]
-        
-        # Get scores
-        scores = self.model.predict(pairs)
-        
-        # Add scores to documents and sort
-        for doc, score in zip(documents, scores):
+        # Compute similarity scores using the bilingual reranker
+        for doc in documents:
+            score = self.model.compute_score([query, doc['text']], normalize=True)
             doc['rerank_score'] = float(score)
         
         # Sort by rerank score and return top_k

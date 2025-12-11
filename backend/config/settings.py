@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     llm_api_base: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-3.5-turbo"
     
-    embedding_model: str = "all-MiniLM-L6-v2"
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    embedding_model: str = "mixedbread-ai/deepset-mxbai-embed-de-large-v1"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     
     chunk_size: int = 1000
     chunk_overlap: int = 200

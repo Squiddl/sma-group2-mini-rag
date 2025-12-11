@@ -200,7 +200,8 @@ Error downloading model
 - Build without cache: `docker compose build --no-cache backend`
 - Download models manually:
   ```bash
-  docker compose run backend python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+  docker compose run backend python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('mixedbread-ai/deepset-mxbai-embed-de-large-v1')"
+  docker compose run backend python -c "from FlagEmbedding import FlagReranker; FlagReranker('BAAI/bge-reranker-v2-m3', use_fp16=False)"
   ```
 
 ## Getting Help

@@ -210,18 +210,18 @@ Query: "What is machine learning?"
 ## Models
 
 ### Embedding Model
-- **Name:** all-MiniLM-L6-v2
-- **Size:** ~80 MB
-- **Dimensions:** 384
+- **Name:** mixedbread-ai/deepset-mxbai-embed-de-large-v1
+- **Size:** ≈1.3 GB
+- **Dimensions:** 1024
 - **Type:** Sentence Transformer
-- **Speed:** ~1-2 seconds per document (CPU)
+- **Speed:** CPU inference takes a few seconds per document
 
 ### Reranker Model
-- **Name:** cross-encoder/ms-marco-MiniLM-L-6-v2
-- **Size:** ~80 MB
-- **Type:** Cross Encoder
-- **Speed:** <100ms for 20 documents (CPU)
-- **Purpose:** Improve retrieval relevance
+- **Name:** BAAI/bge-reranker-v2-m3
+- **Size:** ≈1.4 GB
+- **Type:** Cross-encoder (FlagReranker)
+- **Speed:** <1 second for a handful of documents on CPU
+- **Purpose:** Improve retrieval relevance, optimized for multilingual (incl. German) queries
 
 ### LLM
 - **Type:** API-based (configurable)

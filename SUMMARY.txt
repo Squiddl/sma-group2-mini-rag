@@ -24,7 +24,7 @@ REQUIREMENTS FULFILLED
    - SQLAlchemy ORM
 
 ✅ Qdrant Vector Store
-   - Child chunk embeddings (384 dim)
+   - Child chunk embeddings (1024 dim)
    - Semantic search
    - Metadata storage
    - Automatic collection creation
@@ -63,15 +63,15 @@ REQUIREMENTS FULFILLED
    - Chat history context
 
 ✅ Local Reranker
-   - Cross-encoder model
-   - ms-marco-MiniLM-L-6-v2
+   - Cross-encoder model (FlagReranker)
+   - BAAI/bge-reranker-v2-m3
    - Top-20 → Top-5 reranking
    - CPU-based inference
 
 ✅ Local Embedding Model
    - Sentence-transformers
-   - all-MiniLM-L6-v2
-   - 384-dimensional vectors
+   - mixedbread-ai/deepset-mxbai-embed-de-large-v1
+   - 1024-dimensional vectors
    - CPU-based inference
 
 ✅ Modular Python Backend
@@ -179,8 +179,8 @@ Retrieval Pipeline:
   Query → Embed → Search (top 20) → Rerank (top 5) → Load Parents → LLM
 
 Local Models (CPU):
-  - Embeddings: all-MiniLM-L6-v2 (384 dim, ~80 MB)
-  - Reranker: ms-marco-MiniLM-L-6-v2 (~80 MB)
+   - Embeddings: mixedbread-ai/deepset-mxbai-embed-de-large-v1 (1024 dim, ≈1.3 GB)
+   - Reranker: BAAI/bge-reranker-v2-m3 (≈1.4 GB)
   - Download during Docker build
 
 LLM Integration:
@@ -222,8 +222,8 @@ Production Recommendations:
 PERFORMANCE
 ================================================================================
 
-Embedding:    ~1-2 seconds per document (CPU)
-Reranking:    <100ms for 20 documents (CPU)
+Embedding:    Allow a few seconds per document (CPU)
+Reranking:    <1 second for 20 documents (CPU)
 Vector Search: Sub-second (Qdrant)
 LLM Response:  Depends on API provider
 

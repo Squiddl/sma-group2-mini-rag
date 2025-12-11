@@ -33,10 +33,31 @@ class VectorStoreService:
         self._ensure_collection()
     
     def _ensure_collection(self):
-        """Create collection if it doesn't exist"""
+        """Create collection if it doesn't exist or update mismatched dimensions"""
         try:
-            self.client.get_collection(self.collection_name)
-        except Exception as e:
+            info = self.client.get_collection(self.collection_name)
+            vectors_config = getattr(info.config.params, "vectors", None)
+
+            current_size = None
+            if hasattr(vectors_config, "size"):
+                current_size = vectors_config.size
+            elif isinstance(vectors_config, dict):
+                # Handle scalar and named vector configurations
+                if "size" in vectors_config:
+                    current_size = vectors_config["size"]
+                elif "default" in vectors_config and "size" in vectors_config["default"]:
+                    current_size = vectors_config["default"]["size"]
+
+            if current_size and current_size != self.embedding_service.dimension:
+                self.client.delete_collection(self.collection_name)
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=self.embedding_service.dimension,
+                        distance=Distance.COSINE
+                    )
+                )
+        except Exception:
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(

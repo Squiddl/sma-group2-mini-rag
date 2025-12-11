@@ -10,8 +10,8 @@ A Docker-Compose-based RAG (Retrieval-Augmented Generation) system with:
 - **Python Backend** with FastAPI and LangChain
 - **Web Frontend** for multi-chat interface and document upload
 - **Parent Document Retriever** with pickle files
-- **Local Embedding Model** (sentence-transformers)
-- **Local Reranker** (cross-encoder)
+- **Local Embedding Model** (mixedbread-ai/deepset-mxbai-embed-de-large-v1)
+- **Local Reranker** (BAAI/bge-reranker-v2-m3 via FlagReranker)
 - **API-based LLM** (OpenAI-compatible)
 
 ## Features
@@ -41,8 +41,8 @@ A Docker-Compose-based RAG (Retrieval-Augmented Generation) system with:
 
 1. **Backend (Python/FastAPI)**
    - Document processing and chunking
-   - Local embeddings (all-MiniLM-L6-v2)
-   - Local reranker (ms-marco-MiniLM-L-6-v2)
+   - Local embeddings (mixedbread-ai/deepset-mxbai-embed-de-large-v1)
+   - Local reranker (BAAI/bge-reranker-v2-m3)
    - Parent document retriever with pickle storage
    - RAG pipeline with LangChain
    - API-based LLM integration
@@ -168,8 +168,8 @@ The system uses a two-level chunking strategy:
 
 ### Models
 
-- **Embedding**: `all-MiniLM-L6-v2` (local, ~80MB)
-- **Reranker**: `cross-encoder/ms-marco-MiniLM-L-6-v2` (local, ~80MB)
+- **Embedding**: `mixedbread-ai/deepset-mxbai-embed-de-large-v1` (local, ≈1.3GB, 1024-dim)
+- **Reranker**: `BAAI/bge-reranker-v2-m3` (local, ≈1.4GB)
 - **LLM**: API-based (configurable)
 
 ### API Endpoints

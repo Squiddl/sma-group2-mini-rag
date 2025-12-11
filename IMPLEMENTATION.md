@@ -102,8 +102,8 @@ A complete Retrieval-Augmented Generation (RAG) system with:
 
 ✅ **embeddings.py** - Embedding & Vector Store
 - `EmbeddingService`: Local sentence-transformers
-  - Model: all-MiniLM-L6-v2
-  - 384-dimensional embeddings
+  - Model: mixedbread-ai/deepset-mxbai-embed-de-large-v1
+  - 1024-dimensional embeddings
   - CPU-based inference
 - `VectorStoreService`: Qdrant integration
   - Collection management
@@ -112,8 +112,8 @@ A complete Retrieval-Augmented Generation (RAG) system with:
   - Metadata handling
 
 ✅ **reranker.py** - Reranking Service
-- Cross-encoder reranking
-- Model: ms-marco-MiniLM-L-6-v2
+- Cross-encoder reranking via FlagReranker
+- Model: BAAI/bge-reranker-v2-m3
 - Score-based reranking
 - Configurable top-k
 
@@ -299,8 +299,8 @@ A complete Retrieval-Augmented Generation (RAG) system with:
 - Efficient retrieval and context provision
 
 ### ✅ Local Models
-- Embedding: sentence-transformers (all-MiniLM-L6-v2)
-- Reranker: cross-encoder (ms-marco-MiniLM-L-6-v2)
+- Embedding: sentence-transformers (mixedbread-ai/deepset-mxbai-embed-de-large-v1)
+- Reranker: FlagReranker (BAAI/bge-reranker-v2-m3)
 - No external API calls for embeddings/reranking
 - CPU-based inference
 - Models downloaded during Docker build
