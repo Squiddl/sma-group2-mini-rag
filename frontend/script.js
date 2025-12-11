@@ -78,6 +78,11 @@ async function loadChats() {
     try {
         chats = await apiCall('/chats');
         renderChats();
+        
+        // Auto-select first chat if none is active
+        if (!currentChatId && chats.length > 0) {
+            await selectChat(chats[0].id);
+        }
     } catch (error) {
         showToast('Failed to load chats', 'error');
         console.error(error);
@@ -147,6 +152,30 @@ async function selectChat(chatId) {
     sendBtn.disabled = false;
 }
 
+async function ensureActiveChat() {
+    // If a chat is already active, nothing to do
+    if (currentChatId) return currentChatId;
+
+    // If chats were loaded, pick the first one
+    if (chats.length > 0) {
+        await selectChat(chats[0].id);
+        return currentChatId;
+    }
+
+    // Otherwise create a fallback chat so the user can start typing immediately
+    try {
+        showLoading('Creating chat...');
+        const chat = await apiCall('/chats', 'POST', { title: `Chat ${chats.length + 1}` });
+        chats.unshift(chat);
+        renderChats();
+        await selectChat(chat.id);
+        showToast('New chat created', 'success');
+        return chat.id;
+    } finally {
+        hideLoading();
+    }
+}
+
 async function loadMessages(chatId) {
     try {
         showLoading('Loading messages...');
@@ -184,7 +213,16 @@ function renderMessages(messages) {
 }
 
 async function sendQuery() {
-    if (!currentChatId || !queryInput.value.trim()) return;
+    if (!queryInput.value.trim()) return;
+
+    // Make sure there's an active chat, create/select one if needed
+    try {
+        await ensureActiveChat();
+    } catch (error) {
+        showToast('Failed to prepare chat', 'error');
+        console.error(error);
+        return;
+    }
     
     const query = queryInput.value.trim();
     queryInput.value = '';
@@ -241,8 +279,8 @@ async function deleteCurrentChat() {
             </div>
         `;
         
-        queryInput.disabled = true;
-        sendBtn.disabled = true;
+        queryInput.disabled = false;
+        sendBtn.disabled = false;
         
         renderChats();
         hideLoading();
