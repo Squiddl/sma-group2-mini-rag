@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.pydantic.dev)",
+      "WebFetch(domain:python.langchain.com)",
+      "WebFetch(domain:docs.sqlalchemy.org)"
+    ]
+  }
+}

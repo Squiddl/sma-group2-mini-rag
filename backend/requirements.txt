@@ -5,25 +5,25 @@ psycopg2-binary==2.9.9
 alembic==1.13.1
 pydantic==2.8.2
 pydantic-settings==2.3.4
-python-multipart==0.0.6
+python-multipart==0.0.9
 
-# LangChain and related
 langchain==0.1.5
+langchain-core==0.1.23
 langchain-community==0.0.17
 langchain-openai==0.0.3
-qdrant-client==1.12.1
+langchain-anthropic==0.1.4
+qdrant-client==1.13.0
+cachetools==5.3.2
 
-# Document processing
 pypdf==4.0.1
 python-docx==1.1.2
 tiktoken==0.5.2
 docling==2.0.0
 
-# Embeddings and reranking
 sentence-transformers==2.3.1
+transformers==4.57.3
 torch==2.4.1
 torchvision==0.19.1
 
-# Utilities
 python-dotenv==1.0.0
 httpx==0.26.0

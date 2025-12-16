@@ -1,53 +1,65 @@
 import logging
 import os
 import shutil
-from typing import BinaryIO, Dict, Any, Optional
+from typing import BinaryIO, Dict, Any, Optional, Callable
+
 from pypdf import PdfReader
 from docx import Document as DocxDocument
-from config.settings import settings
+
+from settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-class FileHandler:
-    """Utility for handling different file types"""
+class FileProcessingError(Exception):
+    pass
 
-    _docling_converter = None
-    _docling_disabled = False
+
+class UnsupportedFileTypeError(FileProcessingError):
+    pass
+
+
+class TextExtractionError(FileProcessingError):
+    pass
+
+
+class DoclingConverter:
+    _instance: Optional["DoclingConverter"] = None
+    _converter = None
+    _disabled = False
 
     @classmethod
-    def _get_docling_converter(cls):
-        if cls._docling_disabled or not settings.use_docling_parser:
+    def get_instance(cls) -> Optional["DoclingConverter"]:
+        if cls._disabled or not settings.use_docling_parser:
             return None
-        if cls._docling_converter is not None:
-            return cls._docling_converter
+
+        if cls._instance is None:
+            cls._instance = cls()
+
+        return cls._instance
+
+    def __init__(self):
+        if DoclingConverter._disabled:
+            return
 
         try:
-            from docling.document_converter import DocumentConverter
+            from docling import DocumentConverter  # type: ignore[import-untyped]
+            self._converter = DocumentConverter()
+            logger.info("Docling converter initialized")
+        except Exception as exc:
+            logger.warning(f"Docling unavailable, using fallback parser: {exc}")
+            DoclingConverter._disabled = True
+            self._converter = None
 
-            cls._docling_converter = DocumentConverter()
-            logger.info("Docling converter initialized for PDF parsing")
-        except Exception as exc:  # pragma: no cover - best-effort fallback
-            logger.warning(
-                "Docling unavailable, falling back to legacy PDF parser: %s",
-                exc,
-            )
-            cls._docling_disabled = True
-            cls._docling_converter = None
-
-        return cls._docling_converter
-
-    @classmethod
-    def _extract_pdf_with_docling(cls, file_path: str) -> Optional[str]:
-        converter = cls._get_docling_converter()
-        if converter is None:
+    def convert(self, file_path: str) -> None | Callable | str:
+        if self._converter is None:
             return None
 
         try:
             try:
-                result = converter.convert(file_path)
+                result = self._converter.convert(file_path)
             except TypeError:
-                result = converter.convert(input_document=file_path)
+                result = self._converter.convert(input_document=file_path)
 
             document = getattr(result, "document", None)
             if document is None:
@@ -59,6 +71,7 @@ class FileHandler:
                 "export_plaintext",
                 "export_to_text",
             ]
+
             for method_name in export_methods:
                 exporter = getattr(document, method_name, None)
                 if callable(exporter):
@@ -67,34 +80,38 @@ class FileHandler:
                         return text
 
             return str(document)
-        except Exception as exc:  # pragma: no cover - converter handles many edge cases already
-            logger.warning(
-                "Docling conversion failed for %s, using fallback parser: %s",
-                file_path,
-                exc,
-            )
+
+        except Exception as exc:
+            logger.warning(f"Docling conversion failed for {file_path}: {exc}")
             return None
-    
+
+
+class PDFExtractor:
     @staticmethod
-    def extract_text_from_pdf(file_path: str) -> str:
-        """Extract text from PDF file"""
-        docling_text = FileHandler._extract_pdf_with_docling(file_path)
-        if docling_text:
-            return docling_text
-        
-        reader = PdfReader(file_path)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
-        return text
-    
+    def extract_text(file_path: str) -> str:
+        docling = DoclingConverter.get_instance()
+        if docling:
+            docling_text = docling.convert(file_path)
+            if docling_text:
+                return docling_text
+
+        try:
+            reader = PdfReader(file_path)
+            text_parts = []
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+            return "\n".join(text_parts)
+        except Exception as exc:
+            raise TextExtractionError(f"Failed to extract text from PDF: {exc}")
+
     @staticmethod
-    def extract_pdf_metadata(file_path: str) -> Dict[str, Any]:
-        """Extract metadata from PDF file (author, title, subject, etc.)"""
+    def extract_metadata(file_path: str) -> Dict[str, Any]:
         try:
             reader = PdfReader(file_path)
             metadata = reader.metadata
-            
+
             if metadata:
                 return {
                     "title": metadata.get("/Title", "") or "",
@@ -105,72 +122,113 @@ class FileHandler:
                     "creation_date": str(metadata.get("/CreationDate", "")) or "",
                     "num_pages": len(reader.pages)
                 }
-        except Exception:
-            pass
-        
+        except Exception as exc:
+            logger.warning(f"Failed to extract PDF metadata: {exc}")
+
         return {"num_pages": 0}
-    
+
     @staticmethod
-    def extract_first_pages_text(file_path: str, num_pages: int = 2, max_chars: int = 3000) -> str:
-        """Extract text from the first N pages of a PDF for metadata extraction"""
-        ext = os.path.splitext(file_path)[1].lower()
-        
-        if ext == '.pdf':
-            try:
-                docling_text = FileHandler._extract_pdf_with_docling(file_path)
-                if docling_text:
-                    return docling_text[:max_chars]
-                
-                reader = PdfReader(file_path)
-                text = ""
-                for i, page in enumerate(reader.pages[:num_pages]):
-                    text += page.extract_text() + "\n"
-                    if len(text) > max_chars:
+    def extract_first_pages(file_path: str, num_pages: int = 2, max_chars: int = 3000) -> str:
+        docling = DoclingConverter.get_instance()
+        if docling:
+            docling_text = docling.convert(file_path)
+            if docling_text:
+                return docling_text[:max_chars]
+
+        try:
+            reader = PdfReader(file_path)
+            text_parts = []
+            total_chars = 0
+
+            for page in reader.pages[:num_pages]:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+                    total_chars += len(page_text)
+                    if total_chars > max_chars:
                         break
-                return text[:max_chars]
-            except Exception:
-                return ""
-        else:
-            # For other file types, just return the beginning
-            full_text = FileHandler.extract_text(file_path)
-            return full_text[:max_chars]
-    
-    @staticmethod
-    def extract_text_from_docx(file_path: str) -> str:
-        """Extract text from DOCX file"""
-        doc = DocxDocument(file_path)
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
-        return text
-    
-    @staticmethod
-    def extract_text_from_txt(file_path: str) -> str:
-        """Extract text from TXT file"""
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            return f.read()
-    
+
+            return "".join(text_parts)[:max_chars]
+        except Exception as exc:
+            logger.warning(f"Failed to extract first pages: {exc}")
+            return ""
+
+
+class DOCXExtractor:
     @staticmethod
     def extract_text(file_path: str) -> str:
-        """Extract text based on file extension"""
+        try:
+            doc = DocxDocument(file_path)
+            paragraphs = [p.text for p in doc.paragraphs if p.text]
+            return "\n".join(paragraphs)
+        except Exception as exc:
+            raise TextExtractionError(f"Failed to extract text from DOCX: {exc}")
+
+
+class PlainTextExtractor:
+    @staticmethod
+    def extract_text(file_path: str) -> str:
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        except Exception as exc:
+            raise TextExtractionError(f"Failed to read text file: {exc}")
+
+
+class FileHandler:
+    SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.txt', '.md'}
+
+    @staticmethod
+    def extract_text(file_path: str) -> str:
         ext = os.path.splitext(file_path)[1].lower()
-        
+
         if ext == '.pdf':
-            return FileHandler.extract_text_from_pdf(file_path)
+            return PDFExtractor.extract_text(file_path)
         elif ext == '.docx':
-            return FileHandler.extract_text_from_docx(file_path)
+            return DOCXExtractor.extract_text(file_path)
         elif ext in ['.txt', '.md']:
-            return FileHandler.extract_text_from_txt(file_path)
+            return PlainTextExtractor.extract_text(file_path)
         else:
-            raise ValueError(f"Unsupported file type: {ext}")
-    
+            raise UnsupportedFileTypeError(f"Unsupported file type: {ext}")
+
+    @staticmethod
+    def extract_pdf_metadata(file_path: str) -> Dict[str, Any]:
+        return PDFExtractor.extract_metadata(file_path)
+
+    @staticmethod
+    def extract_first_pages_text(file_path: str, num_pages: int = 2, max_chars: int = 3000) -> str:
+        ext = os.path.splitext(file_path)[1].lower()
+
+        if ext == '.pdf':
+            return PDFExtractor.extract_first_pages(file_path, num_pages, max_chars)
+        else:
+            full_text = FileHandler.extract_text(file_path)
+            return full_text[:max_chars]
+
     @staticmethod
     def save_upload(file: BinaryIO, filename: str, upload_dir: str) -> str:
-        """Save uploaded file to disk"""
         os.makedirs(upload_dir, exist_ok=True)
         file_path = os.path.join(upload_dir, filename)
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file, buffer)
-        
-        return file_path
+
+        try:
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file, buffer)  # type: ignore[arg-type]
+            return file_path
+        except Exception as exc:
+            raise FileProcessingError(f"Failed to save uploaded file: {exc}")
+
+    @staticmethod
+    def is_supported(filename: str) -> bool:
+        ext = os.path.splitext(filename)[1].lower()
+        return ext in FileHandler.SUPPORTED_EXTENSIONS
+
+    @staticmethod
+    def delete_file(file_path: str) -> bool:
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+                return True
+            return False
+        except Exception as exc:
+            logger.warning(f"Failed to delete file {file_path}: {exc}")
+            return False

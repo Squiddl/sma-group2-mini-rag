@@ -1,0 +1,59 @@
+import os
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str = "postgresql://raguser:ragpass@localhost:5432/ragdb"
+    qdrant_host: str = "localhost"
+    qdrant_port: int = 6333
+    qdrant_grpc_port: int = 6334
+    qdrant_prefer_grpc: bool = True
+
+    anthropic_api_key: str = ""
+    llm_model: str = "claude-sonnet-4-5-20250929"
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 4096
+    llm_timeout: float = 60.0
+
+    embedding_model: str = "mixedbread-ai/deepset-mxbai-embed-de-large-v1"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    embedding_cache_size: int = 10000
+
+    chunk_size: int = 1000
+    chunk_overlap: int = 180
+    parent_chunk_size: int = 2000
+    parent_chunk_overlap: int = 400
+    child_chunk_size: int = 400
+    child_chunk_overlap: int = 80
+
+    enable_neighbor_expansion: bool = True
+    neighbor_expansion_window: int = 4
+    top_k_retrieval: int = 20
+    top_k_rerank: int = 6
+
+    query_expansion_cache_size: int = 1000
+    query_expansion_cache_ttl: int = 3600
+
+    data_dir: str = "/app/data"
+    model_cache_dir: str = "/app/models"
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        extra = "ignore"
+
+    @property
+    def upload_dir(self) -> str:
+        return os.path.join(self.data_dir, "uploads")
+
+    @property
+    def pickle_dir(self) -> str:
+        return os.path.join(self.data_dir, "pickles")
+
+    def ensure_directories(self) -> None:
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.upload_dir, exist_ok=True)
+        os.makedirs(self.pickle_dir, exist_ok=True)
+        os.makedirs(self.model_cache_dir, exist_ok=True)
+
+settings = Settings()
