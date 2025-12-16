@@ -11,20 +11,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from db.session import init_db, get_db, SessionLocal
-from.services.settings import settings
-from.db.models import Chat, Message, Document
-from.models.schemas import (
+from services.settings import settings
+from db.models import Chat, Message, Document
+from models.schemas import (
     ChatCreate, ChatResponse, MessageResponse,
     QueryRequest, DocumentUploadResponse,
     DocumentPreferenceUpdate
 )
-from.services.embeddings import EmbeddingService
-from.services.vector_store import VectorStoreService
-from.services.reranker import RerankerService
-from.services.document_processor import DocumentProcessor
-from.services.rag_service import RAGService
-from.services.file_handler import FileHandler
-from.services.metadata_extractor import MetadataExtractor, create_metadata_chunk
+from services.embeddings import EmbeddingService
+from services.vector_store import VectorStoreService
+from services.reranker import RerankerService
+from services.document_processor import DocumentProcessor
+from services.rag_service import RAGService
+from services.file_handler import FileHandler
+from services.metadata_extractor import MetadataExtractor, create_metadata_chunk
 
 logger = logging.getLogger(__name__)
 
