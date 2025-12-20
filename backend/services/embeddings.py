@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from sentence_transformers import SentenceTransformer
 import torch
 
-from settings import settings
+from .settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,6 @@ def get_optimal_device() -> str:
     if torch.cuda.is_available():
         device_name = torch.cuda.get_device_name(0)
         device = 'cuda'
-        logger.info(f"CUDA available: {device_name}")
-        return device
 
     # Check for AMD ROCm
     if hasattr(torch.version, 'hip') and torch.version.hip is not None:

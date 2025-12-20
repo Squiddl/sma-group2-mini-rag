@@ -1,5 +1,5 @@
 from langchain_anthropic import ChatAnthropic  # type: ignore[import-untyped]
-from.services.settings import settings
+from .settings import settings
 
 def create_llm(
     streaming: bool = False,

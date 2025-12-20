@@ -37,14 +37,14 @@ metadata_extractor: Optional[MetadataExtractor] = None
 
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan(app: FastAPI):
     global embedding_service, vector_store_service, reranker_service
     global doc_processor, rag_service, metadata_extractor
 
     logger.info("Initializing RAG System services...")
 
     init_db()
-    settings.paths.ensure_directories()
+    settings.ensure_directories()
 
     embedding_service = EmbeddingService.get_instance()
     vector_store_service = VectorStoreService(embedding_service)
@@ -399,12 +399,12 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
 
         except Exception as exception:
             logger.exception(f"Retrieval failed: {exception}")
-            retrieval_result["error"] = str(exception)  # type: ignore[assignment]
+            retrieval_result["error"] = str(exception)
         finally:
             retrieval_done.set()
             thinking_queue.put(("done", None))
     if retrieval_result["error"]:
-        raise Exception(retrieval_result["error"])  # type: ignore[arg-type]
+        raise Exception(retrieval_result["error"])
 
     retrieval_thread = threading.Thread(target=run_retrieval, daemon=True)
     retrieval_thread.start()
@@ -484,7 +484,7 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # Critical for Nginx - prevents buffering delays
+            "X-Accel-Buffering": "no",
             "Connection": "keep-alive"
         }
     )

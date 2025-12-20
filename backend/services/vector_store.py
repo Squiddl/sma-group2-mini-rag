@@ -11,8 +11,8 @@ from qdrant_client.models import (
     PayloadSchemaType, Filter, FieldCondition, MatchValue
 )
 
-from settings import settings
-from embeddings import EmbeddingService
+from .settings import settings
+from .embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
 

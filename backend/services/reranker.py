@@ -4,8 +4,8 @@ from typing import List, Dict, Any
 import numpy as np
 from sentence_transformers import CrossEncoder
 
-from services.settings import settings
-from services.embeddings import get_optimal_device
+from .settings import settings
+from .embeddings import get_optimal_device
 
 logger = logging.getLogger(__name__)
 

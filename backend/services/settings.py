@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_grpc_port: int = 6334
     qdrant_prefer_grpc: bool = True
+    qdrant_collection_prefix: str = "doc_"
 
     anthropic_api_key: str = ""
     llm_model: str = "claude-sonnet-4-5-20250929"
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     embedding_model: str = "mixedbread-ai/deepset-mxbai-embed-de-large-v1"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     embedding_cache_size: int = 10000
+    use_docling_parser: bool = True
 
     chunk_size: int = 1000
     chunk_overlap: int = 180

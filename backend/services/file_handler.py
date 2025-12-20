@@ -6,7 +6,7 @@ from typing import BinaryIO, Dict, Any, Optional, Callable
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
-from settings import settings
+from .settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -7,12 +7,12 @@ from cachetools import TTLCache
 from langchain.schema import HumanMessage, SystemMessage, AIMessage  # type: ignore[import-not-found]
 from sqlalchemy.orm import Session
 
-from.db.models import Document
-from.services.settings import settings
-from.services.document_processor import DocumentProcessor, load_parent_document
-from.services.llm_factory import create_llm
-from reranker import RerankerService
-from vector_store import VectorStoreService
+from db.models import Document
+from .settings import settings
+from .document_processor import DocumentProcessor, load_parent_document
+from .llm_factory import create_llm
+from .reranker import RerankerService
+from .vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
