@@ -195,46 +195,81 @@ class VectorStoreService:
             collection_name: str,
             document_name: str = None
     ) -> None:
-        self.ensure_collection(collection_name)
-        points = []
+        logger.info(f"Adding {len(chunks)} chunks to collection {collection_name} for doc_id {doc_id}")
 
-        for idx, chunk in enumerate(chunks):
-            dense_embedding = self.embedding_service.embed_text(chunk['text'])
-            sparse_embedding = self.embedding_service.embed_sparse(chunk['text'])
-            chunk_id = chunk.get('chunk_id', idx)
-
-            point = PointStruct(
-                id=str(uuid.uuid4()),
-                vector={
-                    "dense": dense_embedding,
-                    "sparse": SparseVector(
-                        indices=sparse_embedding["indices"],
-                        values=sparse_embedding["values"]
-                    )
-                },
-                payload={
-                    'doc_id': doc_id,
-                    'chunk_id': chunk_id,
-                    'text': chunk['text'],
-                    'parent_id': chunk.get('parent_id'),
-                    'document_name': document_name or chunk.get('document_name', ''),
-                    'section': chunk.get('section', ''),
-                    'position': chunk.get('position', 'middle'),
-                    'chunk_index': idx,
-                    'total_chunks': len(chunks)
-                }
-            )
-            points.append(point)
+        if not collection_name:
+            raise VectorStoreError(f"Cannot add documents: empty collection_name for doc_id {doc_id}")
 
         try:
+            self.ensure_collection(collection_name)
+            logger.debug(f"Collection {collection_name} ensured/created successfully")
+        except Exception as exc:
+            logger.error(f"Failed to ensure collection {collection_name}: {exc}", exc_info=True)
+            raise VectorStoreError(f"Failed to ensure collection {collection_name}: {exc}")
+
+        points = []
+
+        try:
+            for idx, chunk in enumerate(chunks):
+                dense_embedding = self.embedding_service.embed_text(chunk['text'])
+                sparse_embedding = self.embedding_service.embed_sparse(chunk['text'])
+                chunk_id = chunk.get('chunk_id', idx)
+
+                point = PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        "dense": dense_embedding,
+                        "sparse": SparseVector(
+                            indices=sparse_embedding["indices"],
+                            values=sparse_embedding["values"]
+                        )
+                    },
+                    payload={
+                        'doc_id': doc_id,
+                        'chunk_id': chunk_id,
+                        'text': chunk['text'],
+                        'parent_id': chunk.get('parent_id'),
+                        'document_name': document_name or chunk.get('document_name', ''),
+                        'section': chunk.get('section', ''),
+                        'position': chunk.get('position', 'middle'),
+                        'chunk_index': idx,
+                        'total_chunks': len(chunks)
+                    }
+                )
+                points.append(point)
+
+            logger.debug(f"Created {len(points)} points for collection {collection_name}")
+
+        except Exception as exc:
+            logger.error(f"Failed to create points for collection {collection_name}: {exc}", exc_info=True)
+            raise VectorStoreError(f"Failed to create points: {exc}")
+
+        try:
+            logger.debug(f"Upserting {len(points)} points to collection {collection_name}")
             self.client.upsert(collection_name=collection_name, points=points)
+            logger.info(f"Successfully added {len(points)} points to collection {collection_name}")
+
         except Exception as exc:
             if "vector" in str(exc).lower() or "size" in str(exc).lower():
-                logger.warning(f"Collection {collection_name} had schema issues; recreating")
-                self._create_hybrid_collection(collection_name)
-                self.client.upsert(collection_name=collection_name, points=points)
+                logger.warning(
+                    f"Collection {collection_name} had schema issues (vector/size error), recreating collection"
+                )
+                try:
+                    self._create_hybrid_collection(collection_name)
+                    self.client.upsert(collection_name=collection_name, points=points)
+                    logger.info(f"Successfully added {len(points)} points after recreating collection {collection_name}")
+                except Exception as retry_exc:
+                    logger.error(
+                        f"Failed to add documents after recreating collection {collection_name}: {retry_exc}",
+                        exc_info=True
+                    )
+                    raise VectorStoreError(f"Failed to add documents after recreating collection: {retry_exc}")
             else:
-                raise VectorStoreError(f"Failed to add documents: {exc}")
+                logger.error(
+                    f"Failed to upsert documents to collection {collection_name}: {type(exc).__name__}: {exc}",
+                    exc_info=True
+                )
+                raise VectorStoreError(f"Failed to add documents to {collection_name}: {exc}")
 
     def document_exists(self, collection_name: str) -> bool:
         if not self.collection_exists(collection_name):
@@ -256,7 +291,10 @@ class VectorStoreService:
             top_k: int = 20
     ) -> List[Dict[str, Any]]:
         if not doc_collection_map:
+            logger.warning("search() called with empty doc_collection_map")
             return []
+
+        logger.debug(f"Searching in {len(doc_collection_map)} collections: {list(doc_collection_map.values())}")
 
         dense_embedding = self.embedding_service.embed_text(query)
         sparse_embedding = self.embedding_service.embed_sparse(query)
@@ -265,10 +303,21 @@ class VectorStoreService:
         per_collection_limit = max(top_k, 5)
 
         for doc_id, collection_name in doc_collection_map.items():
+            logger.debug(f"Checking collection {collection_name} for doc_id {doc_id}")
+
+            if not collection_name:
+                logger.error(f"Empty collection_name for doc_id {doc_id}")
+                continue
+
             if not self.collection_exists(collection_name):
+                logger.error(
+                    f"Collection {collection_name} for doc_id {doc_id} does not exist in Qdrant. "
+                    f"This document may not have been properly processed or the collection was deleted."
+                )
                 continue
 
             try:
+                logger.debug(f"Querying collection {collection_name} with limit {per_collection_limit}")
                 results = self.client.query_points(
                     collection_name=collection_name,
                     prefetch=[
@@ -296,8 +345,12 @@ class VectorStoreService:
                         )
                     )
                 )
+                logger.debug(f"Query succeeded for collection {collection_name}, found {len(results.points)} results")
             except Exception as exc:
-                logger.warning(f"Query failed for collection {collection_name}: {exc}")
+                logger.error(
+                    f"Query failed for collection {collection_name} (doc_id {doc_id}): {type(exc).__name__}: {exc}",
+                    exc_info=True
+                )
                 continue
 
             for hit in results.points:
@@ -314,6 +367,7 @@ class VectorStoreService:
                     'score': hit.score
                 })
 
+        logger.info(f"Search completed: found {len(combined_results)} total results from {len(doc_collection_map)} collections")
         combined_results.sort(key=lambda item: item['score'], reverse=True)
         return combined_results[:top_k]
 

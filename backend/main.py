@@ -10,6 +10,8 @@ from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+
 from db.session import init_db, get_db, SessionLocal
 from services.settings import settings
 from db.models import Chat, Message, Document
@@ -151,34 +153,58 @@ def _process_document_pipeline(
         document: Document,
         file_path: str
 ) -> Document:
-    text = FileHandler.extract_text(file_path)
+    logger.info(f"Starting document processing pipeline for doc_id={document.id}, filename={document.filename}")
 
-    metadata_chunk = _extract_metadata_for_document(file_path, document.filename)
+    try:
+        logger.debug(f"Extracting text from {file_path}")
+        text = FileHandler.extract_text(file_path)
+        logger.info(f"Extracted {len(text)} characters from {document.filename}")
 
-    pickle_path = os.path.join(settings.pickle_dir, f"doc_{document.id}.pkl")
-    collection_name = document.collection_name
+        metadata_chunk = _extract_metadata_for_document(file_path, document.filename)
 
-    chunks = doc_processor.process_document(
-        document.id,
-        text,
-        pickle_path,
-        document_name=document.filename,
-        metadata_chunk=metadata_chunk
-    )
+        pickle_path = os.path.join(settings.pickle_dir, f"doc_{document.id}.pkl")
+        collection_name = document.collection_name
 
-    vector_store_service.reset_collection(collection_name)
-    vector_store_service.add_documents(
-        document.id,
-        chunks,
-        collection_name,
-        document_name=document.filename
-    )
+        logger.info(f"Processing document with collection_name={collection_name}, pickle_path={pickle_path}")
 
-    document.pickle_path = pickle_path
-    document.processed = True
-    document.num_chunks = len(chunks)
+        if not collection_name:
+            raise ValueError(f"Invalid collection_name for document {document.id}: {collection_name}")
 
-    return document
+        chunks = doc_processor.process_document(
+            document.id,
+            text,
+            pickle_path,
+            document_name=document.filename,
+            metadata_chunk=metadata_chunk
+        )
+        logger.info(f"Document processing created {len(chunks)} chunks for {document.filename}")
+
+        logger.info(f"Resetting collection {collection_name}")
+        vector_store_service.reset_collection(collection_name)
+
+        logger.info(f"Adding {len(chunks)} chunks to collection {collection_name}")
+        vector_store_service.add_documents(
+            document.id,
+            chunks,
+            collection_name,
+            document_name=document.filename
+        )
+
+        document.pickle_path = pickle_path
+        document.processed = True
+        document.num_chunks = len(chunks)
+
+        logger.info(f"Successfully completed processing for doc_id={document.id}, {len(chunks)} chunks in {collection_name}")
+
+        return document
+
+    except Exception as exc:
+        logger.error(
+            f"Document processing pipeline failed for doc_id={document.id}, filename={document.filename}: "
+            f"{type(exc).__name__}: {exc}",
+            exc_info=True
+        )
+        raise
 
 
 @app.get("/", tags=["Health"])
@@ -234,8 +260,12 @@ async def upload_document(
         file: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
+    logger.info(f"Received document upload request: {file.filename}")
+
     try:
+        logger.debug(f"Saving uploaded file {file.filename} to {settings.upload_dir}")
         file_path = FileHandler.save_upload(file.file, file.filename, settings.upload_dir)
+        logger.info(f"File saved to {file_path}")
 
         db_document = Document(
             filename=file.filename,
@@ -246,16 +276,23 @@ async def upload_document(
         db.commit()
         db.refresh(db_document)
 
+        logger.info(f"Document created in database with id={db_document.id}, collection_name={db_document.collection_name}")
+
         db_document = _process_document_pipeline(db_document, file_path)
 
         db.commit()
         db.refresh(db_document)
 
+        logger.info(f"Successfully uploaded and processed document {file.filename} with id={db_document.id}")
+
         return db_document
 
     except Exception as exc:
         db.rollback()
-        logger.exception(f"Failed to process document {file.filename}: {exc}")
+        logger.error(
+            f"Failed to upload/process document {file.filename}: {type(exc).__name__}: {exc}",
+            exc_info=True
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Error processing document: {str(exc)}"
@@ -344,8 +381,7 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
             .order_by(Message.created_at)
             .all()
         )
-        # Expected type 'list[dict[str, str]]', got 'list[dict[str, InstrumentedAttribute[str]]]' instead
-        chat_history: List[Dict[str, str]] = [{"role": msg.role, "content": msg.content} for msg in messages]
+        chat_history: list[dict[str, InstrumentedAttribute[str]]] = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         doc_collection_map = _get_active_doc_collection_map(db)
         if not doc_collection_map:

@@ -11,25 +11,16 @@ from .settings import settings
 
 logger = logging.getLogger(__name__)
 
-
+# TODO
 def get_optimal_device() -> str:
-    """
-    Detect the optimal device for model execution.
-    Checks for CUDA (NVIDIA), ROCm (AMD), MPS (Apple Silicon), or falls back to CPU.
-
-    Returns:
-        str: Device string ('cuda', 'cuda:0', 'cpu', etc.)
-    """
     if torch.cuda.is_available():
         device_name = torch.cuda.get_device_name(0)
         device = 'cuda'
 
-    # Check for AMD ROCm
     if hasattr(torch.version, 'hip') and torch.version.hip is not None:
         logger.info(f"ROCm available: HIP version {torch.version.hip}")
-        return 'cuda'  # ROCm uses 'cuda' as device string
+        return 'cuda'
 
-    # Check for Apple Silicon MPS
     if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         logger.info("Apple MPS (Metal) available")
         return 'mps'
@@ -140,7 +131,7 @@ class EmbeddingService:
         self.model = SentenceTransformer(
             settings.embedding_model,
             device=device,
-            cache_folder=settings.model_cache_dir
+            cache_folder=settings.models_cache_dir
         )
         self.dimension = self.model.get_sentence_embedding_dimension()
         self.sparse_model = SparseEmbedding(vocab_size=30000)

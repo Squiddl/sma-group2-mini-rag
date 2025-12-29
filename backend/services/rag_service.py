@@ -7,12 +7,14 @@ from cachetools import TTLCache
 from langchain.schema import HumanMessage, SystemMessage, AIMessage  # type: ignore[import-not-found]
 from sqlalchemy.orm import Session
 
-from db.models import Document
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+
 from .settings import settings
 from .document_processor import DocumentProcessor, load_parent_document
 from .llm_factory import create_llm
 from .reranker import RerankerService
 from .vector_store import VectorStoreService
+from ..db.models import Document
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +252,6 @@ class RAGService:
         self.llm = create_llm(streaming=True, max_tokens=4096)
         self.llm_sync = create_llm(streaming=False, max_tokens=1024)
 
-        # Query Expansion Cache - 90% faster multi-query retrieval
         self.query_expansion_cache = TTLCache(
             maxsize=settings.query_expansion_cache_size,
             ttl=settings.query_expansion_cache_ttl
@@ -601,18 +602,33 @@ class RAGService:
             db: Session,
             doc_collection_map: Dict[int, str]
     ) -> Tuple[List[str], List[Dict[str, str]]]:
-        retrieved_chunks = self.vector_store.search(
-            query,
-            doc_collection_map,
-            top_k=settings.top_k_retrieval
-        )
+        logger.debug(f"retrieve_and_rerank called with query: '{query[:100]}...'")
+        logger.debug(f"Document collection map: {doc_collection_map}")
 
-        if not retrieved_chunks:
-            return [], []
+        try:
+            retrieved_chunks = self.vector_store.search(
+                query,
+                doc_collection_map,
+                top_k=settings.top_k_retrieval
+            )
 
-        reranked_chunks = self.reranker.rerank(query, retrieved_chunks, top_k=settings.top_k_rerank)
+            if not retrieved_chunks:
+                logger.warning(f"No chunks retrieved for query: '{query[:100]}...'")
+                return [], []
 
-        return _load_parents_from_chunks(reranked_chunks, db)
+            logger.info(f"Retrieved {len(retrieved_chunks)} chunks before reranking")
+
+            reranked_chunks = self.reranker.rerank(query, retrieved_chunks, top_k=settings.top_k_rerank)
+            logger.info(f"Reranked to {len(reranked_chunks)} chunks")
+
+            result = _load_parents_from_chunks(reranked_chunks, db)
+            logger.info(f"Loaded {len(result[0])} parent contexts from chunks")
+
+            return result
+
+        except Exception as exc:
+            logger.error(f"retrieve_and_rerank failed: {type(exc).__name__}: {exc}", exc_info=True)
+            raise
 
     def generate_answer(
             self,
@@ -632,7 +648,7 @@ class RAGService:
             self,
             query: str,
             contexts: List[str],
-            chat_history: Optional[List[Dict[str, str]]] = None
+            chat_history: list[dict[str, InstrumentedAttribute[str]]] = None
     ) -> Iterator[str]:
         messages = _build_messages(query, contexts, chat_history)
 
@@ -651,11 +667,26 @@ class RAGService:
             doc_collection_map: Dict[int, str],
             chat_history: Optional[List[Dict[str, str]]] = None
     ) -> Tuple[str, List[Dict[str, str]]]:
-        contexts, sources = self.retrieve_and_rerank(query, db, doc_collection_map)
+        try:
+            logger.info(f"Processing query: '{query[:100]}...' with {len(doc_collection_map)} active documents")
+            logger.debug(f"Active document collections: {doc_collection_map}")
 
-        if not contexts:
-            return "I couldn't find relevant information in the documents to answer your question.", []
+            contexts, sources = self.retrieve_and_rerank(query, db, doc_collection_map)
 
-        answer = self.generate_answer(query, contexts, chat_history)
+            if not contexts:
+                logger.warning(f"No contexts found for query: '{query[:100]}...'")
+                return "I couldn't find relevant information in the documents to answer your question.", []
 
-        return answer, sources
+            logger.info(f"Found {len(contexts)} contexts for query")
+            answer = self.generate_answer(query, contexts, chat_history)
+
+            return answer, sources
+
+        except Exception as exc:
+            logger.error(
+                f"Query failed: {type(exc).__name__}: {exc}\n"
+                f"Query: '{query[:100]}...'\n"
+                f"Document collections: {doc_collection_map}",
+                exc_info=True
+            )
+            raise

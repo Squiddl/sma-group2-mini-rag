@@ -20,7 +20,6 @@ print_success "Docker is running"
 
 print_info "Checking configuration..."
 [ ! -f .env ] && print_error ".env file missing - copy .env.example and configure OPENAI_API_KEY"
-grep -q "sk-" .env || print_error ".env exists but OPENAI_API_KEY not configured"
 print_success "Configuration found"
 
 mkdir -p backend/data backend/models
@@ -32,5 +31,6 @@ echo ""
 echo " Access: http://localhost:3000"
 echo "  Backend:   http://localhost:8000"
 docker compose logs -f backend
-echo "  GPU:       watch -n 1 rocm-smi"
+# TODO
+# echo "  GPU:       watch -n 1 rocm-smi"
 echo "========================================="

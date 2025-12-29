@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     qdrant_collection_prefix: str = "doc_"
 
     anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-4-5-20250929"
+    openai_api_key: str = ""
+    ollama_base_url: str = "http://localhost:11434"
+    llm_model: str = ""
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
     llm_timeout: float = 60.0
@@ -37,12 +39,14 @@ class Settings(BaseSettings):
     query_expansion_cache_ttl: int = 3600
 
     data_dir: str = "/app/data"
-    model_cache_dir: str = "/app/models"
+    models_cache_dir: str = "/app/models"
 
     class Config:
         env_file = ".env"
         case_sensitive = False
         extra = "ignore"
+        protected_namespaces = ()
+
 
     @property
     def upload_dir(self) -> str:
@@ -52,10 +56,18 @@ class Settings(BaseSettings):
     def pickle_dir(self) -> str:
         return os.path.join(self.data_dir, "pickles")
 
+    def get_active_provider(self) -> str:
+        if self.anthropic_api_key:
+            return "anthropic"
+        elif self.openai_api_key:
+            return "openai"
+        else:
+            return "ollama"
+
     def ensure_directories(self) -> None:
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.upload_dir, exist_ok=True)
         os.makedirs(self.pickle_dir, exist_ok=True)
-        os.makedirs(self.model_cache_dir, exist_ok=True)
+        os.makedirs(self.models_cache_dir, exist_ok=True)
 
 settings = Settings()

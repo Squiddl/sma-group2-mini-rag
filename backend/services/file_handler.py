@@ -87,23 +87,43 @@ class DoclingConverter:
 
 
 class PDFExtractor:
+
     @staticmethod
     def extract_text(file_path: str) -> str:
-        docling = DoclingConverter.get_instance()
-        if docling:
-            docling_text = docling.convert(file_path)
-            if docling_text:
-                return docling_text
+        filename = os.path.basename(file_path)
+
+        if settings.use_docling_parser:
+            logger.info(f"📄 Trying Docling parser for: {filename}")
+            docling = DoclingConverter.get_instance()
+
+            if docling:
+                docling_text = docling.convert(file_path)
+                if docling_text:
+                    logger.info(f"✅ Docling successfully parsed: {filename} ({len(docling_text)} chars)")
+                    return docling_text
+                else:
+                    logger.warning(f"⚠️  Docling returned empty, falling back to PyPDF: {filename}")
+            else:
+                logger.info(f"ℹ️  Docling unavailable, using PyPDF: {filename}")
+        else:
+            logger.info(f"ℹ️  Docling disabled in settings, using PyPDF: {filename}")
 
         try:
+            logger.info(f"📖 Using PyPDF parser for: {filename}")
             reader = PdfReader(file_path)
             text_parts = []
-            for page in reader.pages:
+
+            for page_num, page in enumerate(reader.pages, 1):
                 page_text = page.extract_text()
                 if page_text:
                     text_parts.append(page_text)
-            return "\n".join(text_parts)
+
+            extracted = "\n".join(text_parts)
+            logger.info(f"✅ PyPDF extracted: {filename} ({len(extracted)} chars from {len(reader.pages)} pages)")
+            return extracted
+
         except Exception as exc:
+            logger.error(f"❌ PyPDF extraction failed for {filename}: {exc}")
             raise TextExtractionError(f"Failed to extract text from PDF: {exc}")
 
     @staticmethod
