@@ -157,9 +157,11 @@ def _process_document_pipeline(
 
     try:
         logger.debug(f"Extracting text from {file_path}")
+        # FileHandler für Text-Extraktion
         text = FileHandler.extract_text(file_path)
         logger.info(f"Extracted {len(text)} characters from {document.filename}")
 
+        # FileHandler für Metadata-Extraktion
         metadata_chunk = _extract_metadata_for_document(file_path, document.filename)
 
         pickle_path = os.path.join(settings.pickle_dir, f"doc_{document.id}.pkl")
@@ -173,7 +175,7 @@ def _process_document_pipeline(
         chunks = doc_processor.process_document(
             document.id,
             text,
-            pickle_path,
+            pickle_path=pickle_path,
             document_name=document.filename,
             metadata_chunk=metadata_chunk
         )
@@ -205,7 +207,6 @@ def _process_document_pipeline(
             exc_info=True
         )
         raise
-
 
 @app.get("/", tags=["Health"])
 async def root():
@@ -367,7 +368,6 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
             detail=f"Error deleting document from database: {str(exc)}"
         )
 
-    # Cleanup - Fehler hier sind nicht kritisch
     try:
         vector_store_service.delete_document(collection_name)
         logger.info(f"Deleted collection {collection_name}")

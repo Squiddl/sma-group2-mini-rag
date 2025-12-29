@@ -4,8 +4,10 @@ import shutil
 from typing import BinaryIO, Dict, Any, Optional
 
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import VlmPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.pipeline.vlm_pipeline import VlmPipeline
+from docling.datamodel import vlm_model_specs
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
@@ -26,64 +28,105 @@ class TextExtractionError(FileProcessingError):
     pass
 
 
-class DoclingConverter:
-  _instance: Optional["DoclingConverter"] = None
-  _converter = None
-  _disabled = False
+class DoclingVLMConverter:
+    _instance: Optional["DoclingVLMConverter"] = None
+    _converter = None
+    _disabled = False
 
-  @classmethod
-  def get_instance(cls) -> Optional["DoclingConverter"]:
-      if cls._disabled or not settings.use_docling_parser:
-          return None
-      if cls._instance is None:
-          cls._instance = cls()
-      return cls._instance
+    @classmethod
+    def get_instance(cls) -> Optional["DoclingVLMConverter"]:
+        if cls._disabled or not settings.use_docling_parser:
+            return None
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
-  def __init__(self):
-      if DoclingConverter._disabled:
-          return
-      try:
-          pipeline_options = PdfPipelineOptions()
-          pipeline_options.do_ocr = False  # IMPORTANT: Disable OCR if not needed
-          pipeline_options.do_table_structure = True
-          pipeline_options.do_code_enrichment = True
-          pipeline_options.generate_page_images = False
-          pipeline_options.generate_picture_images = False
+    def __init__(self):
+        if DoclingVLMConverter._disabled:
+            return
 
-          self._converter = DocumentConverter(
-              format_options={
-                  InputFormat.PDF: PdfFormatOption(
-                      pipeline_options=pipeline_options
-                  )
-              }
-          )
-          logger.info("Docling converter initialized (OCR disabled)")
-      except Exception as exc:
-          logger.warning(f"Docling unavailable: {exc}")
-          DoclingConverter._disabled = True
-          self._converter = None
+        try:
+            if settings.docling_use_vlm:
+                pipeline_options = VlmPipelineOptions(
+                    vlm_options=getattr(
+                        vlm_model_specs,
+                        settings.get_vlm_model_spec()
+                    ),
+                    generate_page_images=settings.docling_generate_images,
+                )
 
-  def convert(self, file_path: str) -> Optional[str]:
-      if self._converter is None:
-          return None
-      try:
-          result = self._converter.convert(file_path)
-          document = result.document
-          if document is None:
-              return None
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_cls=VlmPipeline,
+                            pipeline_options=pipeline_options
+                        )
+                    }
+                )
+                logger.info("✅ Docling VLM converter initialized")
+                logger.info(f"   - Model: {settings.docling_vlm_model}")
+                logger.info(f"   - Backend: {settings.docling_vlm_backend}")
+                logger.info("   - Tabellen: VLM-basiert (kein TableFormer)")
+                logger.info("   - Transformers: neueste Version kompatibel")
+            else:
+                # Standard Pipeline (falls VLM deaktiviert)
+                from docling.datamodel.pipeline_options import PdfPipelineOptions
 
-          markdown = document.export_to_markdown()
-          if markdown:
-              logger.info(f"✅ Docling converted {file_path}: {len(markdown)} chars")
-              return markdown
+                pipeline_options = PdfPipelineOptions()
+                pipeline_options.do_ocr = False
+                pipeline_options.do_table_structure = True
+                pipeline_options.do_code_enrichment = True
+                pipeline_options.generate_page_images = False
+                pipeline_options.generate_picture_images = False
 
-          return None
-      except Exception as exc:
-          logger.warning(f"Docling conversion failed: {exc}")
-          return None
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_options=pipeline_options
+                        )
+                    }
+                )
+                logger.info("Docling converter initialized (Standard Pipeline, OCR disabled)")
+
+        except Exception as exc:
+            logger.warning(f"⚠️  Docling initialization failed: {exc}")
+            logger.info("   Falling back to PyPDF for all conversions")
+            DoclingVLMConverter._disabled = True
+            self._converter = None
+
+    def convert(self, file_path: str) -> Optional[str]:
+        if self._converter is None:
+            return None
+
+        try:
+            filename = os.path.basename(file_path)
+            logger.info(f"🔄 Converting with Docling: {filename}")
+
+            result = self._converter.convert(file_path)
+            document = result.document
+
+            if document is None:
+                return None
+
+            markdown = document.export_to_markdown()
+
+            if markdown:
+                num_tables = len(document.tables)
+                logger.info(
+                    f"✅ Docling converted {filename}: "
+                    f"{len(markdown)} chars, {num_tables} tables"
+                )
+                return markdown
+
+            return None
+
+        except Exception as exc:
+            logger.warning(f"Docling conversion failed for {os.path.basename(file_path)}: {exc}")
+            return None
 
 
 class PDFExtractor:
+    """PDF Text-Extraktion mit Docling VLM + PyPDF Fallback"""
 
     @staticmethod
     def extract_text(file_path: str) -> str:
@@ -91,15 +134,20 @@ class PDFExtractor:
 
         if settings.use_docling_parser:
             logger.info(f"📄 Trying Docling parser for: {filename}")
-            docling = DoclingConverter.get_instance()
+            docling = DoclingVLMConverter.get_instance()
 
             if docling:
                 docling_text = docling.convert(file_path)
                 if docling_text:
-                    logger.info(f"✅ Docling successfully parsed: {filename} ({len(docling_text)} chars)")
+                    logger.info(
+                        f"✅ Docling successfully parsed: {filename} "
+                        f"({len(docling_text)} chars)"
+                    )
                     return docling_text
                 else:
-                    logger.warning(f"⚠️  Docling returned empty, falling back to PyPDF: {filename}")
+                    logger.warning(
+                        f"⚠️  Docling returned empty, falling back to PyPDF: {filename}"
+                    )
             else:
                 logger.info(f"ℹ️  Docling unavailable, using PyPDF: {filename}")
         else:
@@ -116,7 +164,10 @@ class PDFExtractor:
                     text_parts.append(page_text)
 
             extracted = "\n".join(text_parts)
-            logger.info(f"✅ PyPDF extracted: {filename} ({len(extracted)} chars from {len(reader.pages)} pages)")
+            logger.info(
+                f"✅ PyPDF extracted: {filename} "
+                f"({len(extracted)} chars from {len(reader.pages)} pages)"
+            )
             return extracted
 
         except Exception as exc:
@@ -125,6 +176,7 @@ class PDFExtractor:
 
     @staticmethod
     def extract_metadata(file_path: str) -> Dict[str, Any]:
+        """Extrahiert PDF-Metadaten"""
         try:
             reader = PdfReader(file_path)
             metadata = reader.metadata
@@ -145,8 +197,12 @@ class PDFExtractor:
         return {"num_pages": 0}
 
     @staticmethod
-    def extract_first_pages(file_path: str, num_pages: int = 2, max_chars: int = 3000) -> str:
-        docling = DoclingConverter.get_instance()
+    def extract_first_pages(
+            file_path: str,
+            num_pages: int = 2,
+            max_chars: int = 3000
+    ) -> str:
+        docling = DoclingVLMConverter.get_instance()
         if docling:
             docling_text = docling.convert(file_path)
             if docling_text:
@@ -174,6 +230,7 @@ class PDFExtractor:
 class DOCXExtractor:
     @staticmethod
     def extract_text(file_path: str) -> str:
+        """Extrahiert Text aus DOCX"""
         try:
             doc = DocxDocument(file_path)
             paragraphs = [p.text for p in doc.paragraphs if p.text]
@@ -185,6 +242,7 @@ class DOCXExtractor:
 class PlainTextExtractor:
     @staticmethod
     def extract_text(file_path: str) -> str:
+        """Liest Text-Dateien"""
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 return f.read()
@@ -213,12 +271,17 @@ class FileHandler:
         return PDFExtractor.extract_metadata(file_path)
 
     @staticmethod
-    def extract_first_pages_text(file_path: str, num_pages: int = 2, max_chars: int = 3000) -> str:
+    def extract_first_pages_text(
+            file_path: str,
+            num_pages: int = 2,
+            max_chars: int = 3000
+    ) -> str:
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext == '.pdf':
             return PDFExtractor.extract_first_pages(file_path, num_pages, max_chars)
         else:
+            # Für nicht-PDF: Ganzen Text extrahieren und begrenzen
             full_text = FileHandler.extract_text(file_path)
             return full_text[:max_chars]
 
@@ -236,6 +299,7 @@ class FileHandler:
 
     @staticmethod
     def is_supported(filename: str) -> bool:
+        """Prüft ob Dateityp unterstützt wird"""
         ext = os.path.splitext(filename)[1].lower()
         return ext in FileHandler.SUPPORTED_EXTENSIONS
 

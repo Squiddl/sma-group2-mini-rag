@@ -46,7 +46,7 @@ class VectorStoreService:
         try:
             self.client.get_collection(collection_name)
             return True
-        except CollectionNotFoundError:
+        except Exception:
             return False
 
     def delete_collection(self, collection_name: str) -> None:
@@ -107,26 +107,28 @@ class VectorStoreService:
             except Exception as exc:
                 logger.warning(f"Failed to delete existing collection {collection_name}: {exc}")
 
+
+
         self.client.create_collection(
-            collection_name=collection_name,
-            vectors_config={
-                "dense": VectorParams(
-                    size=self.embedding_service.dimension,
-                    distance=Distance.COSINE,
-                    quantization_config=ScalarQuantization(
-                        scalar=ScalarQuantizationConfig(
-                            type=ScalarType.INT8,
-                            quantile=0.99,
-                            always_ram=True
-                        )
+        collection_name=collection_name,
+        vectors_config={
+            "dense": VectorParams(
+                size=self.embedding_service.dimension,
+                distance=Distance.COSINE,
+                quantization_config=ScalarQuantization(
+                    scalar=ScalarQuantizationConfig(
+                        type=ScalarType.INT8,
+                        quantile=0.99,
+                        always_ram=True
                     )
                 )
-            },
-            sparse_vectors_config={
-                "sparse": SparseVectorParams(
-                    index=SparseIndexParams(on_disk=False)
-                )
-            }
+            )
+        },
+        sparse_vectors_config={
+            "sparse": SparseVectorParams(
+                index=SparseIndexParams(on_disk=False)
+            )
+        }
         )
         self._create_payload_indexes(collection_name)
 
@@ -158,10 +160,9 @@ class VectorStoreService:
             return
         try:
             self.client.delete_collection(collection_name)
-        except ConnectionResetError:
+        except Exception:
             pass
         self._create_hybrid_collection(collection_name)
-
 
     def cleanup_orphaned_collections(self, valid_collections: Set[str]) -> None:
         try:

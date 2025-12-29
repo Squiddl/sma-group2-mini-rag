@@ -1,25 +1,24 @@
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: rag-postgres
     environment:
       POSTGRES_DB: ragdb
       POSTGRES_USER: raguser
       POSTGRES_PASSWORD: ragpass
+      POSTGRES_INITDB_ARGS: "-E UTF8"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U raguser"]
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   qdrant:
-    build:
-      context: ./qdrant
-    image: rag-qdrant:latest
+    image: qdrant/qdrant:latest
     container_name: rag-qdrant
     ports:
       - "6333:6333"
@@ -28,26 +27,24 @@ services:
       - qdrant_data:/qdrant/storage
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:6333/readyz >/dev/null 2>&1 || exit 1"]
-
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: rag-backend
     environment:
-      DATABASE_URL: postgresql://raguser:ragpass@postgres:5432/ragdb
-      QDRANT_HOST: qdrant
-      QDRANT_PORT: 6333
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LLM_MODEL: ${LLM_MODEL}
-      HSA_OVERRIDE_GFX_VERSION: "10.3.0"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
     volumes:
       - ./backend:/app
       - backend_data:/app/data
+      - models_cache:/app/models
     ports:
       - "8000:8000"
     depends_on:
@@ -55,7 +52,7 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   frontend:
     build:
@@ -73,3 +70,4 @@ volumes:
   postgres_data:
   qdrant_data:
   backend_data:
+  models_cache:
