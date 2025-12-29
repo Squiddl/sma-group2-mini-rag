@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # =============================================================================
     use_docling_parser: bool = True
 
-    docling_use_vlm: bool = True
+    docling_use_vlm: bool = False
     docling_vlm_backend: str = "transformers"  # "transformers" oder "mlx"
     docling_vlm_model: str = "granite"  # "granite" oder "smol"
     docling_generate_images: bool = False
@@ -84,19 +84,13 @@ class Settings(BaseSettings):
 
     @property
     def upload_dir(self) -> str:
-        """Upload-Verzeichnis für hochgeladene Dateien"""
         return os.path.join(self.data_dir, "uploads")
 
     @property
     def pickle_dir(self) -> str:
-        """Pickle-Verzeichnis für serialisierte Daten"""
         return os.path.join(self.data_dir, "pickles")
 
     def get_active_provider(self) -> str:
-        """
-        Ermittle aktiven LLM Provider basierend auf API-Keys
-        Returns: "anthropic", "openai", oder "ollama"
-        """
         if self.anthropic_api_key:
             return "anthropic"
         elif self.openai_api_key:
