@@ -846,3 +846,131 @@ body::before {
         left: 10px;
     }
 }
+
+.upload-progress-card {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(34, 211, 238, 0.05));
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.upload-filename {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.upload-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    border-radius: 4px;
+    transition: width 0.3s ease-out;
+    box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+}
+
+.upload-status {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.status-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--panel-strong);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.document-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.document-status.processing {
+    color: var(--accent);
+}
+
+.document-status.processed {
+    color: var(--success);
+}
+
+.document-status.unprocessed {
+    color: var(--warning);
+}
+
+.status-icon {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.document-item {
+    position: relative;
+}
+
+.document-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: transparent;
+    border-radius: 2px;
+    transition: background-color 0.3s;
+}
+
+.document-item:has(.document-status.processing)::before {
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.toast.warning {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.95), rgba(251, 191, 36, 0.85));
+    color: #0f1c35;
+}
+
+.loading-overlay .spinner {
+    border-top-color: var(--accent);
+    border-right-color: var(--accent-2);
+}

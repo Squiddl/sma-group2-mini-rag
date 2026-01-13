@@ -1,17 +1,15 @@
-# RAG Chat System
+RAG Chat System
+Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunking, local embeddings, Zotero integration, and API-based LLM integration.
+Features
 
-Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunking, local embeddings, and API-based LLM integration.
+Multi-format document upload (PDF, DOCX, TXT, MD)
+Zotero Library Integration (automatic paper sync)
+Multiple persistent chats
+RAG-based question answering with reranking
+Parent-child chunking strategy
+Web-based interface
 
-## Features
-
-- Multi-format document upload (PDF, DOCX, TXT, MD)
-- Multiple persistent chats
-- RAG-based question answering with reranking
-- Parent-child chunking strategy
-- Web-based interface
-
-## Architecture
-```
+Architecture
 ┌─────────────────────────────────────────────────────────────────┐
 │                         User Browser                            │
 └────────────────────────┬────────────────────────────────────────┘
@@ -20,7 +18,7 @@ Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunk
                   ┌─────────────┐
                   │   Frontend  │
                   │  (Nginx)    │
-                  │  Port 3000  │
+                  │  Port 80    │
                   └──────┬──────┘
                          │ API Calls
                          ▼
@@ -34,58 +32,101 @@ Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunk
         │                │                │
         ▼                ▼                ▼
  ┌──────────┐    ┌──────────┐    ┌──────────┐
- │PostgreSQL│    │  Qdrant  │    │ LLM API  │
- │ Port 5432│    │Port 6333 │    │ (Remote) │
+ │  Qdrant  │    │ LLM API  │    │  Zotero  │
+ │Port 6333 │    │ (Remote) │    │   API    │
  └──────────┘    └──────────┘    └──────────┘
-```
+RAG System Workflow
+Phase 1: Indexierung (Dokument-Upload)
+📄 PDF Upload / Zotero Sync
+    ↓
+🔄 Docling Converter
+    • PDF → Strukturiertes Markdown
+    • Fallback: PyPDF (bei libGL-Fehler)
+    ↓
+📋 Metadata Extraction
+    • Titel, Autor, Seitenzahl
+    • Optional: LLM-basierte Analyse
+    ↓
+✂️ Document Chunking (Parent-Child)
+    • Parent: 2000 Tokens (Kontext)
+    • Child: 400 Tokens (Retrieval)
+    • Overlap: Konsistenz
+    ↓
+🔢 Embedding Generation
+    • Batch-Processing (32 Chunks/Batch)
+    • Model: mxbai-embed-large-v1
+    • Output: 1024-dim Vektoren
+    ↓
+💾 Qdrant Vector Storage
+    • Collection: doc_X
+    • Scalar Quantization (Kompression)
+    • Hybrid Search (Dense + Metadata)
+Phase 2: Retrieval (User-Query)
+❓ User Query
+    ↓
+🔢 Query Embedding
+    • Gleicher Encoder wie Dokumente
+    ↓
+🔍 Vector Search (Qdrant)
+    • Top-K: 20 Kandidaten
+    • Cosine Similarity
+    ↓
+🎯 Reranking
+    • Model: bge-reranker-v2-m3
+    • Präzise Query-Chunk-Bewertung
+    • Top-K: 6 beste Chunks
+    ↓
+📚 Context Assembly
+    • Parent-Chunks laden (mehr Kontext)
+    • Optional: Neighbor Expansion (±4 Chunks)
+    ↓
+🤖 LLM Generation
+    • Provider: Claude/OpenAI/Ollama
+    • Prompt: Query + Context
+    • Stream Response
+    ↓
+✅ Antwort an User
+Prerequisites
 
-## Prerequisites
+Docker and Docker Compose
+LLM API key (OpenAI, Anthropic, or Ollama)
+Optional: Zotero account with API key
 
-- Docker and Docker Compose
-- LLM API key (OpenAI, Anthropic, or OpenAI-compatible)
-
-## Setup
-
-### 1. Clone Repository
-```bash
-git clone https://github.com/DuncanSARapp/SMA-Abgabe.git
+Setup
+1. Clone Repository
+bashgit clone https://github.com/DuncanSARapp/SMA-Abgabe.git
 cd SMA-Abgabe
-```
+2. Configure Environment
+bashcp .env.example .env
+Minimal Configuration (.env):
+env# LLM Provider (required)
+ANTHROPIC_API_KEY=sk-ant-...
+# oder
+OPENAI_API_KEY=sk-...
 
-### 2. Configure Environment
-```bash
-cp .env.example .env
-```
+# Zotero (optional)
+ZOTERO_LIBRARY_ID=your-library-id
+ZOTERO_API_KEY=your-zotero-key
+ZOTERO_LIBRARY_TYPE=user  # oder "group"
+Erweiterte Konfiguration (optional):
+env# Models (defaults in settings.py)
+EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1
+RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 
-Edit `.env`:
-```env
-LLM_API_KEY=your-api-key-here
-LLM_API_BASE=https://api.openai.com/v1
-LLM_MODEL=gpt-3.5-turbo
-```
+# LLM Settings
+LLM_PROVIDER=anthropic  # anthropic, openai, ollama
+LLM_MODEL=claude-sonnet-4-20250514
+LLM_TEMPERATURE=0.0
 
-### 3. Run Setup Script
-```bash
-./setup.sh
-```
+# Retrieval
+TOP_K_RETRIEVAL=20
+TOP_K_RERANK=6
 
-The `setup.sh` script validates prerequisites, creates a virtual environment, installs dependencies, validates Docker configuration, and starts all services.
+Hinweis: Alle Parameter mit Defaults in backend/config/settings.py müssen nicht in .env gesetzt werden.
 
-### 4. Access Application
-
-Frontend: http://localhost:3000  
+3. Run Setup Script
+bash./setup.sh
+The setup.sh script validates prerequisites, creates a virtual environment, installs dependencies, validates Docker configuration, and starts all services.
+4. Access Application
+Frontend: http://localhost:80
 API Docs: http://localhost:8000/docs
-
-## Models
-
-**Embedding:** mixedbread-ai/deepset-mxbai-embed-de-large-v1 (1024 dims)  
-**Reranker:** BAAI/bge-reranker-v2-m3 (multilingual)  
-**LLM:** API-based (configurable)
-
-## Configuration
-
-Edit `backend/config/settings.py`:
-- Chunk sizes
-- Retrieval parameters
-- Model names
-- Database URLs

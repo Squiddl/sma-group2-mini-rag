@@ -19,9 +19,20 @@ const ErrorMessages = {
     SERVER: 'Server error - please try again later'
 };
 
+const CACHE_KEYS = {
+    DOCUMENTS: 'rag_documents_cache',
+    DOCUMENTS_TIMESTAMP: 'rag_documents_timestamp'
+};
+
+const CACHE_DURATION = 5 * 60 * 1000;
+const POLL_INTERVAL = 3000;
+const MAX_POLL_ATTEMPTS = 100;
+
 let currentChatId = null;
 let chats = [];
 let documents = [];
+let documentPollers = new Map();
+let uploadProgressElement = null;
 
 const chatList = document.getElementById('chatList');
 const messagesContainer = document.getElementById('messagesContainer');
@@ -39,8 +50,10 @@ const loadingText = document.getElementById('loadingText');
 const toast = document.getElementById('toast');
 
 document.addEventListener('DOMContentLoaded', () => {
+    initializeDocumentCache();
     Promise.all([loadChats(), loadDocuments()]).catch(console.error);
     setupEventListeners();
+    startDocumentPolling();
 });
 
 function setupEventListeners() {
@@ -49,7 +62,7 @@ function setupEventListeners() {
     uploadBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileUpload);
     deleteChatBtn.addEventListener('click', deleteCurrentChat);
-    refreshDocsBtn.addEventListener('click', loadDocuments);
+    refreshDocsBtn.addEventListener('click', () => loadDocuments(true));
 
     queryInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -98,6 +111,44 @@ async function apiCall(endpoint, method = 'GET', data = null) {
     }
 
     return response.json();
+}
+
+function initializeDocumentCache() {
+    const cached = getDocumentsFromCache();
+    if (cached) {
+        documents = cached;
+        renderDocuments();
+    }
+}
+
+function getDocumentsFromCache() {
+    try {
+        const timestamp = localStorage.getItem(CACHE_KEYS.DOCUMENTS_TIMESTAMP);
+        if (!timestamp || Date.now() - parseInt(timestamp) > CACHE_DURATION) {
+            return null;
+        }
+
+        const cached = localStorage.getItem(CACHE_KEYS.DOCUMENTS);
+        return cached ? JSON.parse(cached) : null;
+    } catch {
+        return null;
+    }
+}
+
+function saveDocumentsToCache(docs) {
+    try {
+        localStorage.setItem(CACHE_KEYS.DOCUMENTS, JSON.stringify(docs));
+        localStorage.setItem(CACHE_KEYS.DOCUMENTS_TIMESTAMP, Date.now().toString());
+    } catch (error) {
+        console.warn('Failed to cache documents:', error);
+    }
+}
+
+function clearDocumentsCache() {
+    try {
+        localStorage.removeItem(CACHE_KEYS.DOCUMENTS);
+        localStorage.removeItem(CACHE_KEYS.DOCUMENTS_TIMESTAMP);
+    } catch {}
 }
 
 async function loadChats() {
@@ -247,47 +298,23 @@ async function sendQuery() {
 
     const query = queryInput.value.trim();
     queryInput.value = '';
-    queryInput.disabled = true;
-    sendBtn.disabled = true;
 
-    addMessageToUI('user', query);
+    const userElements = createMessageElement('user', query);
+    messagesContainer.appendChild(userElements.messageDiv);
+
+    const assistantElements = createMessageElement('assistant', '');
+    messagesContainer.appendChild(assistantElements.messageDiv);
+
+    scrollToBottom();
 
     try {
-        const assistantElements = addMessageToUI('assistant', '');
         await streamQuery(query, assistantElements);
+        await loadChats();
     } catch (error) {
-        if (error.detail?.toLowerCase().includes('no active documents')) {
-            addAssistantInfoMessage('Please enable at least one document in the right panel before asking questions.');
-        } else {
-            showToast(`${ErrorMessages.QUERY_RESPONSE}: ${error.detail || error.message}`, 'error');
-            console.error(error);
-        }
-    } finally {
-        queryInput.disabled = false;
-        sendBtn.disabled = false;
-        queryInput.focus();
+        assistantElements.contentDiv.innerHTML = `<span class="error-message">Error: ${error.detail || error.message}</span>`;
+        showToast(`${ErrorMessages.QUERY_RESPONSE}: ${error.detail || error.message}`, 'error');
+        console.error(error);
     }
-}
-
-function addMessageToUI(role, content, sources = null) {
-    const welcomeMsg = messagesContainer.querySelector('.welcome-message');
-    if (welcomeMsg) {
-        welcomeMsg.remove();
-    }
-
-    const elements = createMessageElement(role, content, { sources });
-    messagesContainer.appendChild(elements.messageDiv);
-    scrollToBottom();
-    return elements;
-}
-
-function addAssistantInfoMessage(content) {
-    const elements = addMessageToUI('assistant', content);
-    if (elements.thinkingContainer) {
-        elements.thinkingContainer.remove();
-        elements.thinkingContainer = null;
-    }
-    return elements;
 }
 
 async function deleteCurrentChat() {
@@ -323,10 +350,21 @@ async function deleteCurrentChat() {
     }
 }
 
-async function loadDocuments() {
+async function loadDocuments(forceRefresh = false) {
+    if (forceRefresh) {
+        clearDocumentsCache();
+    }
+
     try {
         documents = await apiCall('/documents');
+        saveDocumentsToCache(documents);
         renderDocuments();
+
+        documents.forEach(doc => {
+            if (!doc.processed) {
+                startPollingDocument(doc.id);
+            }
+        });
     } catch (error) {
         showToast(`${ErrorMessages.DOCUMENTS_LOAD}: ${error.detail || error.message}`, 'error');
         console.error(error);
@@ -344,11 +382,36 @@ function renderDocuments() {
     documents.forEach(doc => {
         const docItem = document.createElement('div');
         docItem.className = 'document-item';
+        docItem.id = `doc-${doc.id}`;
 
         const date = new Date(doc.uploaded_at).toLocaleDateString();
         const isProcessed = doc.processed;
-        const status = isProcessed ? 'processed' : 'unprocessed';
-        const statusText = isProcessed ? `${doc.num_chunks} chunks` : 'Not processed';
+        const isProcessing = !isProcessed && documentPollers.has(doc.id);
+
+        let statusContent = '';
+        if (isProcessing) {
+            statusContent = `
+                <div class="document-status processing">
+                    <span class="status-spinner"></span>
+                    <span>Processing...</span>
+                </div>
+            `;
+        } else if (isProcessed) {
+            statusContent = `
+                <div class="document-status processed">
+                    <span class="status-icon">✓</span>
+                    <span>${doc.num_chunks} chunks</span>
+                </div>
+            `;
+        } else {
+            statusContent = `
+                <div class="document-status unprocessed">
+                    <span class="status-icon">⚠</span>
+                    <span>Not processed</span>
+                </div>
+            `;
+        }
+
         const queryPillClass = doc.query_enabled ? 'query-pill active' : 'query-pill inactive';
 
         docItem.innerHTML = `
@@ -358,12 +421,12 @@ function renderDocuments() {
                 <span class="document-collection">${escapeHtml(doc.collection_name)}</span>
             </div>
             <div class="document-status-row">
-                <div class="document-status ${status}">${statusText}</div>
+                ${statusContent}
                 <div class="${queryPillClass}">${doc.query_enabled ? 'Query on' : 'Query off'}</div>
             </div>
             <div class="document-actions">
-                ${!isProcessed ? `<button class="btn-reprocess" data-id="${doc.id}">Reprocess</button>` : ''}
-                <button class="doc-toggle ${doc.query_enabled ? 'active' : ''}" data-id="${doc.id}" aria-pressed="${doc.query_enabled}">${doc.query_enabled ? 'ON' : 'OFF'}</button>
+                ${!isProcessed && !isProcessing ? `<button class="btn-reprocess" data-id="${doc.id}">Reprocess</button>` : ''}
+                ${isProcessed ? `<button class="doc-toggle ${doc.query_enabled ? 'active' : ''}" data-id="${doc.id}" aria-pressed="${doc.query_enabled}">${doc.query_enabled ? 'ON' : 'OFF'}</button>` : ''}
                 <button class="btn-delete-doc" data-id="${doc.id}">Delete</button>
             </div>
         `;
@@ -391,8 +454,11 @@ async function reprocessDocument(docId) {
     try {
         showLoading('Reprocessing document...');
         await apiCall(`/documents/${docId}/reprocess`, 'POST');
+
+        startPollingDocument(docId);
         await loadDocuments();
-        showToast('Document reprocessed successfully', 'success');
+
+        showToast('Document reprocessing started', 'success');
     } catch (error) {
         showToast(`${ErrorMessages.DOCUMENT_REPROCESS}: ${error.detail || error.message}`, 'error');
         console.error(error);
@@ -406,8 +472,12 @@ async function deleteDocument(docId) {
 
     try {
         showLoading('Deleting document...');
+
+        stopPollingDocument(docId);
+
         await apiCall(`/documents/${docId}`, 'DELETE');
-        await loadDocuments();
+        await loadDocuments(true);
+
         showToast('Document deleted successfully', 'success');
     } catch (error) {
         showToast(`${ErrorMessages.DOCUMENT_DELETE}: ${error.detail || error.message}`, 'error');
@@ -421,7 +491,14 @@ async function toggleDocumentQuery(docId, currentState) {
     try {
         const nextState = !currentState;
         await apiCall(`/documents/${docId}/preferences`, 'PATCH', { query_enabled: nextState });
-        await loadDocuments();
+
+        const doc = documents.find(d => d.id === docId);
+        if (doc) {
+            doc.query_enabled = nextState;
+            saveDocumentsToCache(documents);
+        }
+
+        renderDocuments();
         showToast(nextState ? 'Document enabled for queries' : 'Document excluded from queries', 'success');
     } catch (error) {
         showToast(`${ErrorMessages.DOCUMENT_UPDATE}: ${error.detail || error.message}`, 'error');
@@ -437,33 +514,162 @@ async function handleFileUpload(event) {
     formData.append('file', file);
 
     try {
-        showLoading('Uploading and processing document...');
+        createUploadProgress(file.name);
 
-        const response = await fetch(`${API_BASE}/documents`, {
-            method: 'POST',
-            body: formData,
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const percentComplete = (e.loaded / e.total) * 100;
+                updateUploadProgress(percentComplete, 'Uploading...');
+            }
         });
 
-        if (!response.ok) {
-            let detail = 'Upload failed';
-            try {
-                const errorBody = await response.json();
-                detail = errorBody.detail || detail;
-            } catch (parseError) {}
-            throw new ApiError(detail, response.status, detail);
-        }
+        xhr.addEventListener('load', async () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const doc = JSON.parse(xhr.responseText);
 
-        const doc = await response.json();
-        documents.unshift(doc);
-        renderDocuments();
+                    updateUploadProgress(100, 'Processing document...');
 
-        showToast('Document uploaded successfully', 'success');
+                    documents.unshift(doc);
+                    saveDocumentsToCache(documents);
+                    renderDocuments();
+
+                    startPollingDocument(doc.id);
+
+                    setTimeout(() => {
+                        removeUploadProgress();
+                        showToast('Document uploaded successfully', 'success');
+                    }, 1000);
+                } catch (error) {
+                    removeUploadProgress();
+                    showToast('Upload succeeded but failed to parse response', 'error');
+                }
+            } else {
+                removeUploadProgress();
+                let detail = 'Upload failed';
+                try {
+                    const errorBody = JSON.parse(xhr.responseText);
+                    detail = errorBody.detail || detail;
+                } catch {}
+                showToast(`${ErrorMessages.DOCUMENT_UPLOAD}: ${detail}`, 'error');
+            }
+        });
+
+        xhr.addEventListener('error', () => {
+            removeUploadProgress();
+            showToast(`${ErrorMessages.DOCUMENT_UPLOAD}: ${ErrorMessages.NETWORK}`, 'error');
+        });
+
+        xhr.open('POST', `${API_BASE}/documents`);
+        xhr.send(formData);
+
     } catch (error) {
-        showToast(`${ErrorMessages.DOCUMENT_UPLOAD}: ${error.detail || error.message}`, 'error');
+        removeUploadProgress();
+        showToast(`${ErrorMessages.DOCUMENT_UPLOAD}: ${error.message}`, 'error');
         console.error(error);
     } finally {
-        hideLoading();
         fileInput.value = '';
+    }
+}
+
+function createUploadProgress(filename) {
+    uploadProgressElement = document.createElement('div');
+    uploadProgressElement.className = 'upload-progress-card';
+    uploadProgressElement.innerHTML = `
+        <div class="upload-filename">${escapeHtml(filename)}</div>
+        <div class="upload-progress-bar">
+            <div class="upload-progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="upload-status">Preparing upload...</div>
+    `;
+
+    documentsList.insertBefore(uploadProgressElement, documentsList.firstChild);
+}
+
+function updateUploadProgress(percent, statusText) {
+    if (!uploadProgressElement) return;
+
+    const fill = uploadProgressElement.querySelector('.upload-progress-fill');
+    const status = uploadProgressElement.querySelector('.upload-status');
+
+    if (fill) {
+        fill.style.width = `${Math.min(percent, 100)}%`;
+    }
+
+    if (status) {
+        status.textContent = statusText || `${Math.round(percent)}%`;
+    }
+}
+
+function removeUploadProgress() {
+    if (uploadProgressElement) {
+        uploadProgressElement.remove();
+        uploadProgressElement = null;
+    }
+}
+
+function startDocumentPolling() {
+    documents.forEach(doc => {
+        if (!doc.processed) {
+            startPollingDocument(doc.id);
+        }
+    });
+}
+
+async function startPollingDocument(docId) {
+    if (documentPollers.has(docId)) {
+        return;
+    }
+
+    let attempts = 0;
+
+    const pollerId = setInterval(async () => {
+        attempts++;
+
+        if (attempts > MAX_POLL_ATTEMPTS) {
+            stopPollingDocument(docId);
+            showToast('Document processing timeout', 'warning');
+            return;
+        }
+
+        try {
+            const doc = await apiCall(`/documents/${docId}`);
+
+            if (doc.processed) {
+                stopPollingDocument(docId);
+                const index = documents.findIndex(d => d.id === docId);
+                if (index !== -1) {
+                    documents[index] = doc;
+                    saveDocumentsToCache(documents);
+                }
+                renderDocuments();
+                showToast(`Document processed: ${doc.filename}`, 'success');
+            }
+        } catch (error) {
+            console.error(`Polling error for doc ${docId}:`, error);
+
+            if (error.status >= 400) {
+                stopPollingDocument(docId);
+
+                documents = documents.filter(d => d.id !== docId);
+                saveDocumentsToCache(documents);
+                renderDocuments();
+
+                console.warn(`Stopped polling for deleted/invalid document ${docId}`);
+            }
+        }
+    }, POLL_INTERVAL);
+
+    documentPollers.set(docId, pollerId);
+}
+
+function stopPollingDocument(docId) {
+    const pollerId = documentPollers.get(docId);
+    if (pollerId) {
+        clearInterval(pollerId);
+        documentPollers.delete(docId);
     }
 }
 
@@ -783,3 +989,54 @@ function getThinkingIcon(stepType) {
     };
     return icons[stepType] || '-';
 }
+
+async function syncFromZotero() {
+    try {
+        showLoading('Syncing from Zotero...');
+
+        const statusResponse = await fetch(`${API_BASE}/zotero/status`);
+        const statusData = await statusResponse.json();
+
+        if (!statusData.enabled) {
+            showToast('Zotero not configured', 'error');
+            hideLoading();
+            return;
+        }
+
+        showToast(`Found ${statusData.pdf_attachments} PDFs in Zotero`, 'info');
+
+        const syncResponse = await fetch(`${API_BASE}/zotero/sync/new`, {
+            method: 'POST'
+        });
+
+        const syncData = await syncResponse.json();
+
+        if (syncData.status === 'started') {
+            showToast('Zotero sync started - documents will appear shortly', 'success');
+
+            startDocumentPolling();
+
+            setTimeout(() => {
+                loadDocuments(true);
+            }, 5000);
+        } else {
+            showToast(`Sync failed: ${syncData.message}`, 'error');
+        }
+
+    } catch (error) {
+        showToast(`Zotero sync error: ${error.message}`, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+const zoteroSyncBtn = document.createElement('button');
+zoteroSyncBtn.id = 'zoteroSyncBtn';
+zoteroSyncBtn.className = 'btn-secondary';
+zoteroSyncBtn.textContent = '📚 Sync from Zotero';
+zoteroSyncBtn.style.marginTop = '8px';
+zoteroSyncBtn.addEventListener('click', syncFromZotero);
+
+const sidebarFooter = document.querySelector('.sidebar-footer');
+sidebarFooter.appendChild(zoteroSyncBtn);

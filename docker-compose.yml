@@ -3,73 +3,92 @@ services:
     image: postgres:15-alpine
     container_name: rag-postgres
     environment:
-      POSTGRES_DB: ragdb
-      POSTGRES_USER: raguser
-      POSTGRES_PASSWORD: ragpass
-      POSTGRES_INITDB_ARGS: "-E UTF8"
+      POSTGRES_DB: rag_db
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - rag-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_db"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  qdrant:
-    build:
-      context: ./qdrant
-      dockerfile: Dockerfile
-    container_name: rag-qdrant
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "11434:11434"
     volumes:
-      - qdrant_data:/qdrant/storage
+      - ollama-data:/root/.ollama
+    networks:
+      - rag-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/readyz >/dev/null 2>&1 || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 10s
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-mixedbread-ai/deepset-mxbai-embed-de-large-v1}
+        RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+    image: rag-backend:latest
     container_name: rag-backend
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-    volumes:
-      - ./backend:/app
-      - backend_data:/app/data
-      - models_cache:/app/models
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+      - model-cache:/app/.cache
+    environment:
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-mixedbread-ai/deepset-mxbai-embed-de-large-v1}
+      - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_MODEL=${LLM_MODEL:-llama2}
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+        condition: service_started
+      ollama:
+        condition: service_started
+    networks:
+      - rag-network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rag-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - rag-network
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     container_name: rag-frontend
     ports:
-      - "3000:80"
+      - "80:80"
     depends_on:
       - backend
-    environment:
-      BACKEND_URL: http://backend:8000
+    networks:
+      - rag-network
 
 volumes:
-  postgres_data:
-  qdrant_data:
-  backend_data:
-  models_cache:
+  qdrant-data:
+  model-cache:
+  postgres-data:
+  ollama-data:
+
+networks:
+  rag-network:
+    driver: bridge

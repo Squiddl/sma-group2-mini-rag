@@ -1,6 +1,6 @@
 from langchain_anthropic import ChatAnthropic
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-# from langchain_ollama import ChatOllama
 from .settings import settings
 
 
@@ -20,7 +20,7 @@ def create_llm(streaming: bool = False, max_tokens: int = None, temperature: flo
             timeout=timeout,
             **kwargs
         )
-    else:
+    elif provider == "openai":
         return ChatOpenAI(
             model=settings.llm_model,
             openai_api_key=settings.openai_api_key,
@@ -30,7 +30,6 @@ def create_llm(streaming: bool = False, max_tokens: int = None, temperature: flo
             timeout=timeout,
             **kwargs
         )
-"""
     else:
         return ChatOllama(
             model=settings.llm_model,
@@ -39,4 +38,3 @@ def create_llm(streaming: bool = False, max_tokens: int = None, temperature: flo
             num_predict=max_tok,
             **kwargs
         )
-"""

@@ -7,27 +7,28 @@ from .llm_factory import create_llm
 
 logger = logging.getLogger(__name__)
 
-METADATA_EXTRACTION_PROMPT = """You are a document metadata extractor. Analyze the provided document text and extract key metadata.
+METADATA_EXTRACTION_PROMPT = """You are a precise document metadata extractor. Your task is to extract bibliographic information from academic papers and documents.
 
-Extract the following information if available:
-- Title: The title of the document/paper/article
-- Author(s): Names of all authors (comma-separated)
-- Institution(s): Universities, companies, or organizations
+EXTRACTION RULES:
+1. Extract ONLY information that is EXPLICITLY stated in the text
+2. Do NOT infer, guess, or use external knowledge
+3. If information is not found, write "Not found" for that field
+4. For author names, extract ALL authors in the order they appear
+5. Preserve original formatting and spelling
+
+FIELDS TO EXTRACT:
+- Title: The document's main title
+- Author(s): All author names (comma-separated, in order)
+- Institution(s): Universities, companies, or organizations affiliated with the work
 - Date/Year: Publication or creation date
-- Abstract: A brief summary (if explicitly present)
-- Keywords: Key topics or terms
-- Document Type: paper, thesis, report, article, manual, etc.
+- Abstract: The document's abstract or summary (if present)
+- Keywords: Key topics or terms explicitly listed
+- Document Type: paper, thesis, report, article, manual, book, etc.
 
-IMPORTANT RULES:
-1. Only extract information that is EXPLICITLY stated in the text
-2. If information is not found, use "Not found" for that field
-3. For authors, list ALL names you can find
-4. Be precise - don't guess or infer
-
-Respond in this exact format (keep the field names exactly as shown):
+RESPONSE FORMAT (use exact field names):
 Title: [extracted title or "Not found"]
-Author(s): [names or "Not found"]
-Institution(s): [names or "Not found"]
+Author(s): [all author names or "Not found"]
+Institution(s): [institutions or "Not found"]
 Date/Year: [date or "Not found"]
 Abstract: [abstract text or "Not found"]
 Keywords: [keywords or "Not found"]

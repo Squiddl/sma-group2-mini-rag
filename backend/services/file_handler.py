@@ -138,11 +138,10 @@ class DoclingVLMConverter:
                     logger.info(f"   • Estimated time: ~{est_time // 60} min {est_time % 60} sec (Standard)")
 
                 logger.info("=" * 80)
-            except Exception:
+            except FileProcessingError as exc:
                 num_pages = 0
-                logger.info(f"📄 [DOCLING] Converting: {filename}")
+                logger.info(f"📄 [DOCLING] Converting: {filename}. Unable to read page count: {exc})")
 
-            # Conversion durchführen
             logger.info("🔄 [DOCLING] Running document converter...")
             logger.info("   → This may take several minutes, please wait...")
 
@@ -153,7 +152,6 @@ class DoclingVLMConverter:
                 logger.warning(f"⚠️  [DOCLING] No document returned for {filename}")
                 return None
 
-            # Export zu Markdown
             logger.info("📝 [DOCLING] Exporting to Markdown...")
             markdown = document.export_to_markdown()
 
@@ -191,39 +189,30 @@ class DoclingVLMConverter:
 
 
 class PDFExtractor:
-    """PDF Text-Extraktion mit Docling + PyPDF Fallback"""
-
     @staticmethod
     def extract_text(file_path: str) -> str:
-        """
-        Extrahiert Text aus PDF mit Fortschrittsanzeige
-        - Versucht zuerst Docling (falls aktiviert)
-        - Fallback zu PyPDF bei Fehler
-        """
         filename = os.path.basename(file_path)
         extraction_start = time.time()
 
-        # 1. Versuche Docling
-        if settings.use_docling_parser:
+        if not settings.use_docling_parser:
+            logger.info(f"ℹ️  [EXTRACT] Docling disabled, using PyPDF")
+        else:
             logger.info(f"📄 [EXTRACT] Attempting Docling parser...")
             docling = DoclingVLMConverter.get_instance()
 
-            if docling:
+            if not docling:
+                logger.info(f"ℹ️  [EXTRACT] Docling unavailable, using PyPDF")
+            else:
                 docling_text = docling.convert(file_path)
-                if docling_text:
+                if not docling_text:
+                    logger.warning(f"⚠️  [EXTRACT] Docling returned empty, falling back to PyPDF")
+                else:
                     extraction_time = time.time() - extraction_start
                     logger.info(f"✅ [EXTRACT] Docling extraction complete")
                     logger.info(f"   • Duration: {extraction_time:.1f}s")
                     logger.info(f"   • Characters: {len(docling_text):,}")
                     return docling_text
-                else:
-                    logger.warning(f"⚠️  [EXTRACT] Docling returned empty, falling back to PyPDF")
-            else:
-                logger.info(f"ℹ️  [EXTRACT] Docling unavailable, using PyPDF")
-        else:
-            logger.info(f"ℹ️  [EXTRACT] Docling disabled, using PyPDF")
 
-        # 2. PyPDF Fallback mit Fortschrittsanzeige
         try:
             logger.info("=" * 80)
             logger.info(f"📖 [PyPDF] Starting extraction: {filename}")
@@ -245,7 +234,6 @@ class PDFExtractor:
                 if page_text:
                     text_parts.append(page_text)
 
-                # Progress logging every 10 pages or last page
                 if page_num % 10 == 0 or page_num == num_pages:
                     elapsed = time.time() - page_start
                     avg_time = elapsed / page_num
@@ -268,7 +256,6 @@ class PDFExtractor:
             logger.info(f"   • Speed: {extraction_time / num_pages:.2f}s per page")
             logger.info(f"   • Characters: {len(extracted):,}")
             logger.info("=" * 80)
-
             return extracted
 
         except Exception as exc:
@@ -346,11 +333,8 @@ class PDFExtractor:
 
 
 class DOCXExtractor:
-    """DOCX Text-Extraktion"""
-
     @staticmethod
     def extract_text(file_path: str) -> str:
-        """Extrahiert Text aus DOCX mit Logging"""
         filename = os.path.basename(file_path)
         logger.info(f"📄 [DOCX] Extracting from: {filename}")
 
@@ -368,11 +352,8 @@ class DOCXExtractor:
 
 
 class PlainTextExtractor:
-    """Plain Text Extraktion"""
-
     @staticmethod
     def extract_text(file_path: str) -> str:
-        """Liest Text-Dateien mit Logging"""
         filename = os.path.basename(file_path)
         logger.info(f"📄 [TEXT] Reading: {filename}")
 
@@ -389,12 +370,10 @@ class PlainTextExtractor:
 
 
 class FileHandler:
-    """Hauptklasse für File-Handling mit verbessertem Logging"""
     SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.txt', '.md'}
 
     @staticmethod
     def extract_text(file_path: str) -> str:
-        """Extrahiert Text mit automatischer Format-Erkennung"""
         ext = os.path.splitext(file_path)[1].lower()
         filename = os.path.basename(file_path)
 
@@ -412,7 +391,6 @@ class FileHandler:
 
     @staticmethod
     def extract_pdf_metadata(file_path: str) -> Dict[str, Any]:
-        """Extrahiert PDF-Metadaten"""
         return PDFExtractor.extract_metadata(file_path)
 
     @staticmethod
@@ -421,7 +399,6 @@ class FileHandler:
             num_pages: int = 2,
             max_chars: int = 3000
     ) -> str:
-        """Extrahiert Text von ersten Seiten"""
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext == '.pdf':
@@ -451,13 +428,11 @@ class FileHandler:
 
     @staticmethod
     def is_supported(filename: str) -> bool:
-        """Prüft ob Dateityp unterstützt wird"""
         ext = os.path.splitext(filename)[1].lower()
         return ext in FileHandler.SUPPORTED_EXTENSIONS
 
     @staticmethod
     def delete_file(file_path: str) -> bool:
-        """Löscht Datei vom Filesystem"""
         try:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)

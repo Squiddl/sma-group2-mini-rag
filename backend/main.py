@@ -24,7 +24,7 @@ from models.schemas import (
 from services.embeddings import EmbeddingService
 from services.vector_store import VectorStoreService
 from services.reranker import RerankerService
-from services.document_processor import DocumentProcessor
+from services.document_processor import DocumentProcessor, process_document
 from services.rag_service import RAGService
 from services.file_handler import FileHandler
 from services.metadata_extractor import MetadataExtractor, create_metadata_chunk
@@ -195,7 +195,6 @@ def _process_document_pipeline(
         logger.info(f"   → Words: ~{len(text.split()):,}")
         logger.info(f"   → Lines: ~{text.count(chr(10)):,}")
 
-        # SCHRITT 2: Metadata-Extraktion
         logger.info(f"📋 [STEP 2/5] Metadata Extraction")
         metadata_start = time.time()
 
@@ -207,7 +206,6 @@ def _process_document_pipeline(
         else:
             logger.info(f"⚠️  [STEP 2/5] No metadata extracted ({metadata_elapsed:.1f}s)")
 
-        # SCHRITT 3: Chunking
         logger.info(f"✂️  [STEP 3/5] Document Chunking")
         chunk_start = time.time()
 
@@ -221,7 +219,7 @@ def _process_document_pipeline(
         logger.info(f"   → Parent size: {settings.parent_chunk_size} tokens")
         logger.info(f"   → Child size: {settings.child_chunk_size or settings.chunk_size} tokens")
 
-        chunks = doc_processor.process_document(
+        chunks = process_document(
             document.id,
             text,
             pickle_path=pickle_path,
@@ -236,7 +234,6 @@ def _process_document_pipeline(
         logger.info(f"   → Content chunks: {sum(1 for c in chunks if not c.get('is_metadata'))}")
         logger.info(f"   → Pickle saved: {pickle_path}")
 
-        # SCHRITT 4: Vektorisierung & Speicherung
         logger.info(f"🔢 [STEP 4/5] Vector Embedding & Storage")
         vector_start = time.time()
 

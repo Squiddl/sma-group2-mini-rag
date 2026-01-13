@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 class MarkdownTableSerializerProvider(ChunkingSerializerProvider):
-    """Serialisiert Tabellen als Markdown (RAG-optimiert)"""
-
     def get_serializer(self, doc):
         return ChunkingDocSerializer(
             doc=doc,
@@ -27,10 +25,6 @@ class MarkdownTableSerializerProvider(ChunkingSerializerProvider):
 
 
 def load_parent_document(pickle_path: Optional[str], parent_id: int) -> str:
-    """
-    Lädt Parent-Dokument aus Pickle-Datei
-    Wird von rag_service.py für Neighbor-Expansion benötigt
-    """
     if not pickle_path:
         return ""
 
@@ -50,22 +44,88 @@ def load_parent_document(pickle_path: Optional[str], parent_id: int) -> str:
         return ""
 
 
-class DocumentProcessor:
-    """
-    Verarbeitet Dokumente mit Parent-Child-Chunking
-    Nutzt Markdown Table Serializer für bessere Tabellen-Darstellung
-    """
+def process_document(
+        doc_id: int,
+        text: str,
+        pickle_path: str,
+        document_name: str = "",
+        metadata_chunk: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    parent_size = settings.parent_chunk_size
+    parent_overlap = settings.parent_chunk_overlap or settings.chunk_overlap
 
+    parent_docs = []
+    for start in range(0, len(text), parent_size - parent_overlap):
+        parent_chunk = text[start:start + parent_size]
+        if parent_chunk.strip():
+            parent_docs.append(parent_chunk)
+
+    if metadata_chunk:
+        parent_docs_with_meta = [metadata_chunk] + parent_docs
+    else:
+        parent_docs_with_meta = parent_docs
+
+    os.makedirs(os.path.dirname(pickle_path), exist_ok=True)
+    with open(pickle_path, 'wb') as f:
+        pickle.dump(parent_docs_with_meta, f)
+
+    chunks = []
+    chunk_counter = 0
+
+    if metadata_chunk:
+        chunks.append({
+            'text': metadata_chunk,
+            'parent_id': 0,
+            'doc_id': doc_id,
+            'document_name': document_name,
+            'section': 'Document Metadata',
+            'position': 'metadata',
+            'chunk_index': chunk_counter,
+            'is_metadata': True
+        })
+        parent_offset = 1
+        chunk_counter += 1
+    else:
+        parent_offset = 0
+
+    child_size = settings.child_chunk_size or settings.chunk_size
+    child_overlap = settings.child_chunk_overlap or settings.chunk_overlap
+
+    for parent_id, parent_text in enumerate(parent_docs):
+        for start in range(0, len(parent_text), child_size - child_overlap):
+            child_text = parent_text[start:start + child_size]
+
+            if child_text.strip():
+                chunks.append({
+                    'text': child_text,
+                    'parent_id': parent_id + parent_offset,
+                    'doc_id': doc_id,
+                    'document_name': document_name,
+                    'section': 'Body',
+                    'position': 'middle',
+                    'chunk_index': chunk_counter,
+                    'is_metadata': False
+                })
+                chunk_counter += 1
+
+    logger.info(
+        f"Processed document {document_name}: "
+        f"{len(parent_docs)} parent chunks, {len(chunks)} child chunks"
+        f"{' (with metadata)' if metadata_chunk else ''}"
+    )
+
+    return chunks
+
+
+class DocumentProcessor:
     def __init__(self):
         embed_model = settings.embedding_model
 
-        # HuggingFace Tokenizer für Chunking
         self.tokenizer = HuggingFaceTokenizer(
             tokenizer=AutoTokenizer.from_pretrained(embed_model),
             max_tokens=settings.chunk_size,
         )
 
-        # HybridChunker mit Markdown Table Serializer
         self.chunker = HybridChunker(
             tokenizer=self.tokenizer,
             serializer_provider=MarkdownTableSerializerProvider(),
@@ -76,80 +136,3 @@ class DocumentProcessor:
             f"(max_tokens={settings.chunk_size}, markdown_tables=True)"
         )
 
-    def process_document(
-            self,
-            doc_id: int,
-            text: str,
-            pickle_path: str,
-            document_name: str = "",
-            metadata_chunk: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        parent_size = settings.parent_chunk_size
-        parent_overlap = settings.parent_chunk_overlap or settings.chunk_overlap
-
-        parent_docs = []
-        for start in range(0, len(text), parent_size - parent_overlap):
-            parent_chunk = text[start:start + parent_size]
-            if parent_chunk.strip():
-                parent_docs.append(parent_chunk)
-
-        # Metadata-Chunk als Parent 0 (falls vorhanden)
-        if metadata_chunk:
-            parent_docs_with_meta = [metadata_chunk] + parent_docs
-        else:
-            parent_docs_with_meta = parent_docs
-
-        # Speichere Parent-Dokumente für Neighbor-Expansion
-        os.makedirs(os.path.dirname(pickle_path), exist_ok=True)
-        with open(pickle_path, 'wb') as f:
-            pickle.dump(parent_docs_with_meta, f)
-
-        chunks = []
-        chunk_counter = 0
-
-        # Metadata-Chunk
-        if metadata_chunk:
-            chunks.append({
-                'text': metadata_chunk,
-                'parent_id': 0,
-                'doc_id': doc_id,
-                'document_name': document_name,
-                'section': 'Document Metadata',
-                'position': 'metadata',
-                'chunk_index': chunk_counter,
-                'is_metadata': True
-            })
-            parent_offset = 1
-            chunk_counter += 1
-        else:
-            parent_offset = 0
-
-        # Child-Level: Kleine Chunks (für Retrieval)
-        child_size = settings.child_chunk_size or settings.chunk_size
-        child_overlap = settings.child_chunk_overlap or settings.chunk_overlap
-
-        for parent_id, parent_text in enumerate(parent_docs):
-            # Erstelle Child-Chunks aus jedem Parent
-            for start in range(0, len(parent_text), child_size - child_overlap):
-                child_text = parent_text[start:start + child_size]
-
-                if child_text.strip():
-                    chunks.append({
-                        'text': child_text,
-                        'parent_id': parent_id + parent_offset,
-                        'doc_id': doc_id,
-                        'document_name': document_name,
-                        'section': 'Body',
-                        'position': 'middle',
-                        'chunk_index': chunk_counter,
-                        'is_metadata': False
-                    })
-                    chunk_counter += 1
-
-        logger.info(
-            f"Processed document {document_name}: "
-            f"{len(parent_docs)} parent chunks, {len(chunks)} child chunks"
-            f"{' (with metadata)' if metadata_chunk else ''}"
-        )
-
-        return chunks
