@@ -46,6 +46,8 @@ services:
     volumes:
       - ./backend/data:/app/data
       - model-cache:/app/.cache
+    env_file:
+      - .env  # Lädt .env automatisch
     environment:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-mixedbread-ai/deepset-mxbai-embed-de-large-v1}
       - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
@@ -53,6 +55,9 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - LLM_MODEL=${LLM_MODEL:-phi3:mini}
+      - ZOTERO_LIBRARY_ID=${ZOTERO_LIBRARY_ID}
+      - ZOTERO_LIBRARY_TYPE=${ZOTERO_LIBRARY_TYPE}
+      - ZOTERO_API_KEY=${ZOTERO_API_KEY}c
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,7 +67,6 @@ services:
         condition: service_started
     networks:
       - rag-network
-
   qdrant:
     image: qdrant/qdrant:latest
     container_name: rag-qdrant

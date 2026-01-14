@@ -170,17 +170,12 @@ class ZoteroSyncService:
                 metadata_chunk=metadata_chunk
             )
 
-            self.vector_store.ensure_collection(collection_name)
-
-            texts = [chunk['text'] for chunk in chunks]
-            embeddings = self.embedding_service.embed_texts(texts)
-            sparse_embeddings = self.embedding_service.embed_sparse_batch(texts)
-
-            self.vector_store.insert_chunks(
-                collection_name,
+            # add_documents erstellt Embeddings intern und ruft ensure_collection auf
+            self.vector_store.add_documents(
+                doc.id,
                 chunks,
-                embeddings,
-                sparse_embeddings
+                collection_name,
+                document_name=filename
             )
 
             doc.processed = True
