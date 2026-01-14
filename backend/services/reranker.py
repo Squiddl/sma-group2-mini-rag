@@ -4,6 +4,7 @@ import logging
 from typing import List, Dict, Any
 
 import numpy as np
+from scipy.special import expit  # Sigmoid function for score normalization
 from sentence_transformers import CrossEncoder
 
 from .settings import settings
@@ -94,7 +95,14 @@ class RerankerService:
 
         pairs = [(query, doc['text']) for doc in documents]
         scores = self.model.predict(pairs)
-        scores_list = [float(s) for s in scores]
+
+        # Normalize CrossEncoder logits to [0, 1] using sigmoid function
+        # CrossEncoder returns unbounded logits, not probabilities
+        scores_normalized = expit(scores)  # Sigmoid: 1 / (1 + exp(-x))
+        scores_list = [float(s) for s in scores_normalized]
+
+        logger.debug(f"Reranking: Raw score range [{np.min(scores):.2f}, {np.max(scores):.2f}] "
+                    f"→ Normalized [{np.min(scores_normalized):.3f}, {np.max(scores_normalized):.3f}]")
 
         for doc, score in zip(documents, scores_list):
             doc['rerank_score'] = score

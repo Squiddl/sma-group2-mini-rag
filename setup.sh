@@ -25,8 +25,10 @@ print_info "Checking configuration..."
 print_success "Configuration found"
 
 # Lade .env Variablen
+set -a
 source .env 2>/dev/null || true
-LLM_MODEL=${LLM_MODEL:-llama2}
+set +a
+LLM_MODEL=${LLM_MODEL:-phi3:mini}
 LLM_PROVIDER=${LLM_PROVIDER:-ollama}
 
 mkdir -p backend/data backend/models
@@ -50,19 +52,28 @@ if [ "$LLM_PROVIDER" = "ollama" ]; then
         if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
             print_error "Ollama did not start in time"
         fi
+        echo -n "."
         sleep 2
     done
+    echo ""
     print_success "Ollama is ready"
 
     # Prüfe ob Modell bereits existiert
-    if docker exec rag-ollama ollama list | grep -q "^$LLM_MODEL"; then
+    if docker exec rag-ollama ollama list | grep -q "$LLM_MODEL"; then
         print_success "Model '$LLM_MODEL' is already available"
     else
-        print_warning "Model '$LLM_MODEL' not found - downloading now (this may take several minutes)..."
+        print_warning "Model '$LLM_MODEL' not found - downloading now..."
+        print_info "This may take several minutes depending on model size and internet speed"
+        echo ""
 
-        # Lade Modell herunter
+        # Lade Modell herunter mit Progress-Anzeige
         if docker exec rag-ollama ollama pull "$LLM_MODEL"; then
             print_success "Model '$LLM_MODEL' downloaded successfully"
+
+            # Backend neu starten damit es das neue Modell erkennt
+            print_info "Restarting backend to load new model..."
+            docker-compose restart backend
+            print_success "Backend restarted"
         else
             print_error "Failed to download model '$LLM_MODEL'"
         fi
@@ -83,6 +94,7 @@ echo "  Backend:   http://localhost:8000"
 echo "  API Docs:  http://localhost:8000/docs"
 echo "  Qdrant:    http://localhost:6333/dashboard"
 echo ""
-print_info "Showing backend logs (Ctrl+C to exit)..."
+echo "To view logs: docker-compose logs -f [service]"
+echo "To stop:      docker-compose down"
 echo ""
-docker compose logs -f backend
+print_success "Setup complete!"

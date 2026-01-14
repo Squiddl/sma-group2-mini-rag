@@ -25,12 +25,12 @@ services:
       - ollama-data:/root/.ollama
     networks:
       - rag-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 10GB
+        reservations:
+          memory: 6GB
 
   backend:
     build:
@@ -52,7 +52,7 @@ services:
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
-      - LLM_MODEL=${LLM_MODEL:-llama2}
+      - LLM_MODEL=${LLM_MODEL:-phi3:mini}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,7 +77,7 @@ services:
     build: ./frontend
     container_name: rag-frontend
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
       - backend
     networks:
