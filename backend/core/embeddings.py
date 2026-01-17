@@ -7,11 +7,10 @@ from typing import List, Dict, Any, Optional
 from sentence_transformers import SentenceTransformer
 import torch
 
-from .settings import settings
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# TODO
 def get_optimal_device() -> str:
     if hasattr(torch.version, 'hip') and torch.version.hip is not None:
         logger.info(f"ROCm available: HIP version {torch.version.hip}")
@@ -30,7 +29,6 @@ def _make_key(text: str) -> str:
 
 
 class LRUCache:
-    """Simple LRU Cache for embeddings."""
 
     def __init__(self, max_size: int = 10000):
         self.cache: OrderedDict = OrderedDict()
@@ -143,6 +141,34 @@ class EmbeddingService:
         logger.info(f"✅ [EMBEDDING] Model loaded in {load_time:.2f}s")
         logger.info(f"   → Embedding dimension: {self.dimension}")
         logger.info(f"   → Cache size: {settings.embedding_cache_size} entries")
+
+    def warmup(self):
+        """
+        Warmup the model with dummy embeddings to ensure it's fully loaded.
+
+        This performs inference with various text lengths to properly initialize
+        the model and any JIT compilation. Recommended by sentence-transformers
+        to avoid cold-start latency on first real request.
+        """
+        logger.info(f"🔥 [EMBEDDING] Warming up model...")
+        import time
+        warmup_start = time.time()
+
+        # Warmup with various text lengths (short, medium, long)
+        warmup_texts = [
+            "test",  # Very short
+            "This is a warmup test for the embedding model.",  # Medium
+            "This is a longer warmup text to ensure the model is fully loaded and ready. " * 5  # Long
+        ]
+
+        # Single embedding warmup
+        _ = self.model.encode(warmup_texts[0], show_progress_bar=False, convert_to_numpy=True)
+
+        # Batch embedding warmup (more realistic)
+        _ = self.model.encode(warmup_texts, show_progress_bar=False, convert_to_numpy=True)
+
+        warmup_time = time.time() - warmup_start
+        logger.info(f"✅ [EMBEDDING] Warmup completed in {warmup_time:.2f}s")
 
     def embed_text(self, text: str) -> List[float]:
         """Embed text with LRU caching."""

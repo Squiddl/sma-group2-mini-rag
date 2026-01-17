@@ -1157,7 +1157,7 @@ async function syncFromZotero() {
                 loadDocuments(true);
             }, 5000);
         } else {
-            showToast(`Sync failed: ${syncData.message}`, 'error');
+            showToast(`${syncData.message}`, 'error');
         }
 
     } catch (error) {

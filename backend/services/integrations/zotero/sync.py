@@ -5,13 +5,11 @@ from typing import Dict
 from persistence.models import Document
 from persistence.session import SessionLocal
 
-from .document_processor import process_document
-from .embeddings import EmbeddingService
-from .file_handler import FileHandler
-from .metadata_extractor import MetadataExtractor
-from .settings import settings
-from .vector_store import VectorStoreService
-from .zotero_service import ZoteroService
+from core.embeddings import EmbeddingService
+from services.ingest.metadata import MetadataExtractor
+from core.settings import settings
+from core.vector_store import VectorStoreService
+from .client import ZoteroService
 
 logger = logging.getLogger(__name__)
 

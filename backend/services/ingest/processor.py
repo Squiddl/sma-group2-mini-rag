@@ -8,7 +8,7 @@ from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 from docling_core.transforms.serializer.markdown import MarkdownTableSerializer
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from transformers import AutoTokenizer
-from .settings import settings
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 

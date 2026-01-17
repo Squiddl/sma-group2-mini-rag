@@ -9,12 +9,12 @@ from sqlalchemy.orm import Session
 from persistence.models import Document
 from persistence.session import SessionLocal
 from .file_handler import FileHandler
-from .metadata_extractor import MetadataExtractor, create_metadata_chunk
-from .document_processor import process_document as create_chunks
-from .settings import settings
+from .metadata import MetadataExtractor, create_metadata_chunk
+from .processor import process_document as create_chunks
+from core.settings import settings
 
 if TYPE_CHECKING:
-    from .vector_store import VectorStoreService
+    from core.vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
 

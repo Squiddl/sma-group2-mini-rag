@@ -5,12 +5,12 @@ from typing import Optional
 
 from persistence.models import Document
 from persistence.session import SessionLocal
-from .document_pipeline import DocumentPipelineService
-from .embeddings import EmbeddingService
-from .metadata_extractor import MetadataExtractor
-from .settings import settings
-from .vector_store import VectorStoreService
-from .zotero_service import ZoteroService
+from .pipeline import DocumentPipelineService
+from core.embeddings import EmbeddingService
+from .metadata import MetadataExtractor
+from core.settings import settings
+from core.vector_store import VectorStoreService
+from services.integrations.zotero.client import ZoteroService
 
 logger = logging.getLogger(__name__)
 

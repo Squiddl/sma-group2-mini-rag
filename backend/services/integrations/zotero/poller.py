@@ -4,7 +4,7 @@ from typing import Optional
 
 from persistence.models import Document
 from persistence.session import SessionLocal
-from .zotero_service import ZoteroService
+from .client import ZoteroService
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class ZoteroPoller:
                     logger.info(f"🔄 Auto-syncing {new_count} document(s)...")
 
                     try:
-                        from .zotero_sync_service import ZoteroSyncService
+                        from .sync import ZoteroSyncService
                         sync_service = ZoteroSyncService()
 
                         result = sync_service.sync_new_documents_only()
@@ -106,7 +106,7 @@ class ZoteroPoller:
                             logger.info(f"📢 {synced} document(s) queued for processing")
                             # Trigger worker immediately after auto-sync
                             try:
-                                from .document_processing_worker import get_worker
+                                from services.ingest.worker import get_worker
                                 worker = get_worker()
                                 worker.trigger_check()
                                 logger.info(f"📢 Worker triggered: {synced} document(s) ready for processing")

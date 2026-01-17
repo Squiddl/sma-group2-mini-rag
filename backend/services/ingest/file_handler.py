@@ -12,7 +12,7 @@ from docling.datamodel import vlm_model_specs
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
-from .settings import settings
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +308,6 @@ class PDFExtractor:
                 logger.info(f"✅ [FIRST PAGES] Extracted {len(result)} chars via Docling")
                 return result
 
-        # Fallback zu PyPDF
         try:
             logger.info("   → Using PyPDF for first pages...")
             reader = PdfReader(file_path)
@@ -409,7 +408,6 @@ class FileHandler:
 
     @staticmethod
     def save_upload(file: BinaryIO, filename: str, upload_dir: str) -> str:
-        """Speichert hochgeladene Datei"""
         logger.info(f"💾 [UPLOAD] Saving: {filename}")
         os.makedirs(upload_dir, exist_ok=True)
         file_path = os.path.join(upload_dir, filename)

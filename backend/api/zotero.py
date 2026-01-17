@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from typing import Dict
 import logging
 
-from .zotero_sync_service import ZoteroSyncService
+from services.integrations.zotero.sync import ZoteroSyncService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/zotero", tags=["Zotero"])
@@ -33,7 +33,7 @@ async def trigger_sync() -> Dict:
     # Trigger worker immediately after sync
     if result.get('synced', 0) > 0:
         try:
-            from .document_processing_worker import get_worker
+            from services.ingest.worker import get_worker
             worker = get_worker()
             worker.trigger_check()
             logger.info(f"📢 Worker triggered after sync: {result['synced']} document(s) ready")
@@ -62,10 +62,9 @@ async def sync_new_only() -> Dict:
     logger.info("🔄 Starting synchronous Zotero sync (new documents only)...")
     result = zotero_sync_service.sync_new_documents_only()
 
-    # Trigger worker immediately after sync
     if result.get('synced', 0) > 0:
         try:
-            from .document_processing_worker import get_worker
+            from services.ingest.worker import get_worker
             worker = get_worker()
             worker.trigger_check()
             logger.info(f"📢 Worker triggered after sync: {result['synced']} new document(s) ready")

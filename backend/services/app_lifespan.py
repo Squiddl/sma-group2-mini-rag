@@ -6,16 +6,16 @@ from fastapi import FastAPI
 
 from persistence.session import init_db, SessionLocal
 
-from .document_pipeline import DocumentPipelineService
-from .document_processor import DocumentProcessor
-from .embeddings import EmbeddingService
-from .metadata_extractor import MetadataExtractor
-from .rag_service import RAGService
-from .reranker import RerankerService
-from .settings import settings
+from services.ingest.pipeline import DocumentPipelineService
+from services.ingest.processor import DocumentProcessor
+from core.embeddings import EmbeddingService
+from services.ingest.metadata import MetadataExtractor
+from services.rag.service import RAGService
+from core.reranker import RerankerService
+from core.settings import settings
 from persistence.models import Document
 
-from .vector_store import VectorStoreService
+from core.vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -88,21 +88,29 @@ async def lifespan(app: FastAPI):
 
     logger.info("🔧 Initializing core ...")
 
-    from .embeddings import EmbeddingService
-    from .vector_store import VectorStoreService
-    from .reranker import RerankerService
-    from .rag_service import RAGService
-    from .metadata_extractor import MetadataExtractor
-    from .document_pipeline import DocumentPipelineService
+    from core.embeddings import EmbeddingService
+    from core.vector_store import VectorStoreService
+    from core.reranker import RerankerService
+    from services.rag.service import RAGService
+    from services.ingest.metadata import MetadataExtractor
+    from services.ingest.pipeline import DocumentPipelineService
 
     embedding_service = EmbeddingService.get_instance()
     logger.info(f"   ✅ Embedding service ready (model: {settings.embedding_model})")
+
+    # Warmup the embedding model to ensure it's fully loaded
+    embedding_service.warmup()
+    logger.info(f"   ✅ Embedding model warmed up and ready for use")
 
     vector_store_service = VectorStoreService(embedding_service)
     logger.info(f"   ✅ Vector store connected (Qdrant: {settings.qdrant_host})")
 
     reranker_service = RerankerService.get_instance()
     logger.info(f"   ✅ Reranker service ready (model: {settings.reranker_model})")
+
+    # Warmup the reranker model to ensure it's fully loaded
+    reranker_service.warmup()
+    logger.info(f"   ✅ Reranker model warmed up and ready for use")
 
     doc_processor = DocumentProcessor()
     logger.info(f"   ✅ Document processor ready")
@@ -125,8 +133,8 @@ async def lifespan(app: FastAPI):
     logger.info("🔄 Starting Background Services")
     logger.info("=" * 80)
 
-    from .zotero_poller import get_poller
-    from .document_processing_worker import get_worker
+    from services.integrations.zotero.poller import get_poller
+    from services.ingest.worker import get_worker
 
     logger.info("🔧 Initializing Zotero poller...")
     poller = get_poller()

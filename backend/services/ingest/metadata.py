@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from .llm_factory import create_llm
+from core.llm import create_llm
 
 logger = logging.getLogger(__name__)
 

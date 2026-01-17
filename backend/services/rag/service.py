@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
-from .settings import settings
-from .document_processor import DocumentProcessor, load_parent_document
-from .llm_factory import create_llm
-from .reranker import RerankerService
-from .vector_store import VectorStoreService
+from core.settings import settings
+from services.ingest.processor import DocumentProcessor, load_parent_document
+from core.llm import create_llm
+from core.reranker import RerankerService
+from core.vector_store import VectorStoreService
 from persistence.models import Document
 
 logger = logging.getLogger(__name__)
@@ -252,7 +252,6 @@ class RAGService:
         self.llm = create_llm(streaming=True, max_tokens=4096)
         self.llm_sync = create_llm(streaming=False, max_tokens=1024)
 
-        # Query Expansion Cache - 90% faster multi-query retrieval
         self.query_expansion_cache = TTLCache(
             maxsize=settings.query_expansion_cache_size,
             ttl=settings.query_expansion_cache_ttl
@@ -266,7 +265,6 @@ class RAGService:
         original_query: str,
         round_name: str
     ) -> List[str]:
-        """Helper method to generate queries from LLM with error handling."""
         try:
             response = self.llm_sync.invoke(messages)
             queries = [q.strip() for q in response.content.strip().split('\n') if q.strip()][:3]
@@ -276,7 +274,6 @@ class RAGService:
             return [original_query]
 
     def generate_query_variations(self, original_query: str) -> List[str]:
-        # Check cache first
         if original_query in self.query_expansion_cache:
             logger.debug(f"Query expansion cache hit for: {original_query[:50]}...")
             return self.query_expansion_cache[original_query]

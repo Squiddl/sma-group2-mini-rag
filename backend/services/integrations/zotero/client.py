@@ -3,7 +3,7 @@ import os
 from typing import List, Dict, Any, Optional
 from pyzotero import zotero
 
-from .settings import settings
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 

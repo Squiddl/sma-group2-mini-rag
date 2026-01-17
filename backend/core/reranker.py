@@ -74,14 +74,46 @@ class RerankerService:
 
     def __init__(self):
         device = get_optimal_device()
-        logger.info(f"Loading reranker model on device: {device}")
+        logger.info(f"🧠 [RERANKER] Initializing reranker service...")
+        logger.info(f"   → Device: {device}")
+        logger.info(f"   → Model: {settings.reranker_model}")
 
+        import time
+        load_start = time.time()
         self.model = CrossEncoder(
             settings.reranker_model,
             device=device
         )
+        load_time = time.time() - load_start
 
-        logger.info(f"Reranker model loaded: {settings.reranker_model}")
+        logger.info(f"✅ [RERANKER] Model loaded in {load_time:.2f}s")
+
+    def warmup(self):
+        """
+        Warmup the reranker model with dummy predictions.
+
+        CrossEncoders benefit from warmup to initialize the model
+        and any JIT compilation before the first real request.
+        """
+        logger.info(f"🔥 [RERANKER] Warming up model...")
+        import time
+        warmup_start = time.time()
+
+        # Warmup with realistic query-document pairs
+        warmup_pairs = [
+            ("test query", "test document"),
+            ("What is machine learning?", "Machine learning is a subset of artificial intelligence."),
+            ("How to configure a system?", "Configuration steps: 1. Open settings 2. Adjust parameters 3. Save changes")
+        ]
+
+        # Single prediction warmup
+        _ = self.model.predict([warmup_pairs[0]])
+
+        # Batch prediction warmup (more realistic)
+        _ = self.model.predict(warmup_pairs)
+
+        warmup_time = time.time() - warmup_start
+        logger.info(f"✅ [RERANKER] Warmup completed in {warmup_time:.2f}s")
 
     def rerank(
             self,
