@@ -1,7 +1,8 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
 from services.settings import settings
-from db.models import Base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from .models import Base
 
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

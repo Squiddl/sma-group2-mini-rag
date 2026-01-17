@@ -18,9 +18,9 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-4-20250514"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 4096
-    llm_timeout: float = 60.0
+    llm_timeout: float = 30.0
 
-    embedding_model: str = "mixedbread-ai/deepset-mxbai-embed-de-large-v1" # intfloat/multilingual-e5-base (Lightweight)
+    embedding_model: str = "" # mixedbread-ai/deepset-mxbai-embed-de-large-v1, intfloat/multilingual-e5-base (Lightweight)
                                                                            # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (Minimal)
     embedding_batch_size: int = 32
     embedding_cache_size: int = 10000

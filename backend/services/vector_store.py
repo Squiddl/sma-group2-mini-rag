@@ -202,25 +202,43 @@ class VectorStoreService:
             collection_name: str,
             document_name: str = None
     ) -> None:
-        logger.info(f"Adding {len(chunks)} chunks to collection {collection_name} for doc_id {doc_id}")
+        logger.info(f"🔢 [VECTOR STORE] Starting embedding for {len(chunks)} chunks")
+        logger.info(f"   → Document ID: {doc_id}")
+        logger.info(f"   → Collection: {collection_name}")
+        logger.info(f"   → Document name: {document_name}")
 
         if not collection_name:
             raise VectorStoreError(f"Cannot add documents: empty collection_name for doc_id {doc_id}")
 
         try:
+            logger.info(f"   → Ensuring collection exists...")
             self.ensure_collection(collection_name)
-            logger.debug(f"Collection {collection_name} ensured/created successfully")
+            logger.info(f"   ✓ Collection {collection_name} ready")
         except Exception as exc:
-            logger.error(f"Failed to ensure collection {collection_name}: {exc}", exc_info=True)
+            logger.error(f"❌ Failed to ensure collection {collection_name}: {exc}", exc_info=True)
             raise VectorStoreError(f"Failed to ensure collection {collection_name}: {exc}")
 
         points = []
+        embedding_times = []
 
         try:
+            import time
+            logger.info(f"   → Generating embeddings for {len(chunks)} chunks...")
+
             for idx, chunk in enumerate(chunks):
+                chunk_start = time.time()
+
                 dense_embedding = self.embedding_service.embed_text(chunk['text'])
                 sparse_embedding = self.embedding_service.embed_sparse(chunk['text'])
                 chunk_id = chunk.get('chunk_id', idx)
+
+                chunk_time = time.time() - chunk_start
+                embedding_times.append(chunk_time)
+
+                # Log progress every 10 chunks or for first/last
+                if idx == 0 or (idx + 1) % 10 == 0 or idx == len(chunks) - 1:
+                    avg_time = sum(embedding_times) / len(embedding_times)
+                    logger.info(f"   → Embedded chunk {idx + 1}/{len(chunks)} ({chunk_time:.3f}s, avg: {avg_time:.3f}s)")
 
                 point = PointStruct(
                     id=str(uuid.uuid4()),
@@ -245,16 +263,23 @@ class VectorStoreService:
                 )
                 points.append(point)
 
-            logger.debug(f"Created {len(points)} points for collection {collection_name}")
+            total_time = sum(embedding_times)
+            avg_time = total_time / len(embedding_times) if embedding_times else 0
+            logger.info(f"   ✓ All embeddings generated: {len(points)} points in {total_time:.2f}s (avg: {avg_time:.3f}s/chunk)")
 
         except Exception as exc:
-            logger.error(f"Failed to create points for collection {collection_name}: {exc}", exc_info=True)
+            logger.error(f"❌ Failed to create points for collection {collection_name}: {exc}", exc_info=True)
             raise VectorStoreError(f"Failed to create points: {exc}")
 
         try:
-            logger.debug(f"Upserting {len(points)} points to collection {collection_name}")
+            logger.info(f"   → Upserting {len(points)} points to Qdrant...")
+            import time
+            upsert_start = time.time()
             self.client.upsert(collection_name=collection_name, points=points)
-            logger.info(f"Successfully added {len(points)} points to collection {collection_name}")
+            upsert_time = time.time() - upsert_start
+            logger.info(f"✅ [VECTOR STORE] Successfully stored {len(points)} vectors in {upsert_time:.2f}s")
+            logger.info(f"   → Collection: {collection_name}")
+            logger.info(f"   → Points per second: {len(points)/upsert_time:.1f}")
 
         except Exception as exc:
             if "vector" in str(exc).lower() or "size" in str(exc).lower():

@@ -42,6 +42,7 @@ class DocumentUploadResponse(BaseModel):
     num_chunks: int
     query_enabled: bool
     collection_name: str
+    is_actively_processing: bool = False
 
 
 class DocumentPreferenceUpdate(BaseModel):

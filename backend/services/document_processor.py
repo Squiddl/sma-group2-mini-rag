@@ -3,11 +3,8 @@ import os
 import pickle
 from typing import List, Dict, Any, Optional
 
-from docling_core.transforms.chunker import HybridChunker
-from docling_core.transforms.chunker.hierarchical_chunker import (
-    ChunkingDocSerializer,
-    ChunkingSerializerProvider,
-)
+from docling_core.transforms.chunker.hierarchical_chunker import ChunkingDocSerializer, ChunkingSerializerProvider
+from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 from docling_core.transforms.serializer.markdown import MarkdownTableSerializer
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from transformers import AutoTokenizer
@@ -51,8 +48,13 @@ def process_document(
         document_name: str = "",
         metadata_chunk: Optional[str] = None
 ) -> List[Dict[str, Any]]:
+    logger.info(f"📋 [CHUNKER] Starting chunking for document {doc_id}: {document_name}")
+    logger.info(f"   → Input text length: {len(text):,} characters")
+
     parent_size = settings.parent_chunk_size
     parent_overlap = settings.parent_chunk_overlap or settings.chunk_overlap
+
+    logger.info(f"   → Parent chunk config: size={parent_size}, overlap={parent_overlap}")
 
     parent_docs = []
     for start in range(0, len(text), parent_size - parent_overlap):
@@ -60,14 +62,19 @@ def process_document(
         if parent_chunk.strip():
             parent_docs.append(parent_chunk)
 
+    logger.info(f"   → Created {len(parent_docs)} parent chunks")
+
     if metadata_chunk:
         parent_docs_with_meta = [metadata_chunk] + parent_docs
+        logger.info(f"   → Added metadata chunk (total parents: {len(parent_docs_with_meta)})")
     else:
         parent_docs_with_meta = parent_docs
+        logger.info(f"   → No metadata chunk added")
 
     os.makedirs(os.path.dirname(pickle_path), exist_ok=True)
     with open(pickle_path, 'wb') as f:
         pickle.dump(parent_docs_with_meta, f)
+    logger.info(f"   → Saved parent documents to: {pickle_path}")
 
     chunks = []
     chunk_counter = 0
@@ -85,11 +92,15 @@ def process_document(
         })
         parent_offset = 1
         chunk_counter += 1
+        logger.info(f"   → Created metadata child chunk")
     else:
         parent_offset = 0
 
     child_size = settings.child_chunk_size or settings.chunk_size
     child_overlap = settings.child_chunk_overlap or settings.chunk_overlap
+
+    logger.info(f"   → Child chunk config: size={child_size}, overlap={child_overlap}")
+    logger.info(f"   → Creating child chunks from {len(parent_docs)} parent chunks...")
 
     for parent_id, parent_text in enumerate(parent_docs):
         for start in range(0, len(parent_text), child_size - child_overlap):
@@ -108,8 +119,18 @@ def process_document(
                 })
                 chunk_counter += 1
 
+    # Log summary
+    content_chunks = sum(1 for c in chunks if not c.get('is_metadata'))
+    meta_chunks = sum(1 for c in chunks if c.get('is_metadata'))
+    avg_chunk_len = sum(len(c['text']) for c in chunks) / len(chunks) if chunks else 0
+
+    logger.info(f"✅ [CHUNKER] Chunking complete for document {doc_id}")
+    logger.info(f"   → Total chunks: {len(chunks)}")
+    logger.info(f"   → Content chunks: {content_chunks}")
+    logger.info(f"   → Metadata chunks: {meta_chunks}")
+    logger.info(f"   → Avg chunk length: {avg_chunk_len:.0f} chars")
     logger.info(
-        f"Processed document {document_name}: "
+        f"📊 Processed document {document_name}: "
         f"{len(parent_docs)} parent chunks, {len(chunks)} child chunks"
         f"{' (with metadata)' if metadata_chunk else ''}"
     )
@@ -135,4 +156,3 @@ class DocumentProcessor:
             f"DocumentProcessor initialized with HybridChunker "
             f"(max_tokens={settings.chunk_size}, markdown_tables=True)"
         )
-

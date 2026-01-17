@@ -13,10 +13,6 @@ logger = logging.getLogger(__name__)
 
 # TODO
 def get_optimal_device() -> str:
-    if torch.cuda.is_available():
-        device_name = torch.cuda.get_device_name(0)
-        device = 'cuda'
-
     if hasattr(torch.version, 'hip') and torch.version.hip is not None:
         logger.info(f"ROCm available: HIP version {torch.version.hip}")
         return 'cuda'
@@ -127,23 +123,32 @@ class EmbeddingService:
 
     def __init__(self):
         device = get_optimal_device()
-        logger.info(f"Loading embedding model on device: {device}")
+        logger.info(f"🧠 [EMBEDDING] Initializing embedding service...")
+        logger.info(f"   → Device: {device}")
+        logger.info(f"   → Model: {settings.embedding_model}")
+
+        import time
+        load_start = time.time()
         self.model = SentenceTransformer(
             settings.embedding_model,
             device=device,
             cache_folder=settings.models_cache_dir
         )
+        load_time = time.time() - load_start
+
         self.dimension = self.model.get_sentence_embedding_dimension()
         self.sparse_model = SparseEmbedding(vocab_size=30000)
         self.cache = LRUCache(max_size=settings.embedding_cache_size)
 
-        logger.info(f"Embedding model loaded: {settings.embedding_model} (dim={self.dimension})")
-        logger.info(f"Embedding cache enabled: {settings.embedding_cache_size} entries")
+        logger.info(f"✅ [EMBEDDING] Model loaded in {load_time:.2f}s")
+        logger.info(f"   → Embedding dimension: {self.dimension}")
+        logger.info(f"   → Cache size: {settings.embedding_cache_size} entries")
 
     def embed_text(self, text: str) -> List[float]:
         """Embed text with LRU caching."""
         cached = self.cache.get(text)
         if cached is not None:
+            logger.debug(f"   [CACHE HIT] Embedding retrieved from cache")
             return cached
 
         embedding = self.model.encode(text).tolist()

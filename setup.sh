@@ -24,7 +24,6 @@ print_info "Checking configuration..."
 [ ! -f .env ] && print_error ".env file missing - copy env.example to .env and configure settings"
 print_success "Configuration found"
 
-# Lade .env Variablen
 set -a
 source .env 2>/dev/null || true
 set +a
@@ -34,16 +33,13 @@ LLM_PROVIDER=${LLM_PROVIDER:-ollama}
 mkdir -p backend/data backend/models
 
 print_info "Starting RAG System..."
-docker-compose up -d --build
-
+docker-compose down -v && docker-compose up -d
 echo ""
 print_success "Services started"
 
-# Wenn Ollama als Provider konfiguriert ist, prüfe und lade Modell
 if [ "$LLM_PROVIDER" = "ollama" ]; then
     print_info "Ollama Provider detected - checking model '$LLM_MODEL'..."
 
-    # Warte auf Ollama
     print_info "Waiting for Ollama to be ready..."
     RETRY_COUNT=0
     MAX_RETRIES=30
@@ -58,7 +54,6 @@ if [ "$LLM_PROVIDER" = "ollama" ]; then
     echo ""
     print_success "Ollama is ready"
 
-    # Prüfe ob Modell bereits existiert
     if docker exec rag-ollama ollama list | grep -q "$LLM_MODEL"; then
         print_success "Model '$LLM_MODEL' is already available"
     else
@@ -66,11 +61,9 @@ if [ "$LLM_PROVIDER" = "ollama" ]; then
         print_info "This may take several minutes depending on model size and internet speed"
         echo ""
 
-        # Lade Modell herunter mit Progress-Anzeige
         if docker exec rag-ollama ollama pull "$LLM_MODEL"; then
             print_success "Model '$LLM_MODEL' downloaded successfully"
 
-            # Backend neu starten damit es das neue Modell erkennt
             print_info "Restarting backend to load new model..."
             docker-compose restart backend
             print_success "Backend restarted"
@@ -94,7 +87,5 @@ echo "  Backend:   http://localhost:8000"
 echo "  API Docs:  http://localhost:8000/docs"
 echo "  Qdrant:    http://localhost:6333/dashboard"
 echo ""
-echo "To view logs: docker-compose logs -f [service]"
-echo "To stop:      docker-compose down"
-echo ""
 print_success "Setup complete!"
+docker-compose logs -f

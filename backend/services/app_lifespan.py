@@ -1,34 +1,25 @@
-"""
-Kombinierter Lifespan Manager für RAG System + Zotero Background Services
-
-Startet beim App-Start:
-- RAG System Services (Embeddings, Vector Store, Reranker, etc.)
-- Zotero Poller (alle 15s)
-- Document Processing Worker (alle 30s)
-"""
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
 
-from db.session import init_db, SessionLocal
-from services.settings import settings
-from db.models import Document
+from persistence.session import init_db, SessionLocal
+
+from .document_pipeline import DocumentPipelineService
+from .document_processor import DocumentProcessor
+from .embeddings import EmbeddingService
+from .metadata_extractor import MetadataExtractor
+from .rag_service import RAGService
+from .reranker import RerankerService
+from .settings import settings
+from persistence.models import Document
+
+from .vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
-# Globale Service-Instanzen
-embedding_service: Optional['EmbeddingService'] = None
-vector_store_service: Optional['VectorStoreService'] = None
-reranker_service: Optional['RerankerService'] = None
-doc_processor: Optional['DocumentProcessor'] = None
-rag_service: Optional['RAGService'] = None
-metadata_extractor: Optional['MetadataExtractor'] = None
-
-
 def _sync_documents_with_qdrant(vector_store) -> None:
-    """Synchronisiert Dokumente zwischen PostgreSQL und Qdrant"""
     db = SessionLocal()
     try:
         documents = db.query(Document).all()
@@ -65,31 +56,44 @@ def _sync_documents_with_qdrant(vector_store) -> None:
     finally:
         db.close()
 
+embedding_service: Optional['EmbeddingService'] = None
+vector_store_service: Optional['VectorStoreService'] = None
+reranker_service: Optional['RerankerService'] = None
+doc_processor: Optional['DocumentProcessor'] = None
+rag_service: Optional['RAGService'] = None
+metadata_extractor: Optional['MetadataExtractor'] = None
+document_pipeline: Optional['DocumentPipelineService'] = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global embedding_service, vector_store_service, reranker_service
-    global doc_processor, rag_service, metadata_extractor
+    global doc_processor, rag_service, metadata_extractor, document_pipeline
+
+    logging.getLogger('services').setLevel(logging.INFO)
+    logging.getLogger('document_processing_worker').setLevel(logging.INFO)
+    logging.getLogger('document_pipeline').setLevel(logging.INFO)
+    logging.getLogger('file_handler').setLevel(logging.INFO)
+    logging.getLogger('document_processor').setLevel(logging.INFO)
+    logging.getLogger('zotero_poller').setLevel(logging.INFO)
 
     logger.info("=" * 80)
     logger.info("🚀 Starting RAG System Initialization")
     logger.info("=" * 80)
 
-    # Datenbank initialisieren
     logger.info("📊 Initializing database...")
     init_db()
     settings.ensure_directories()
     logger.info("✅ Database initialized")
 
-    # Services initialisieren
-    logger.info("🔧 Initializing core services...")
+    logger.info("🔧 Initializing core ...")
 
-    from services.embeddings import EmbeddingService
-    from services.vector_store import VectorStoreService
-    from services.reranker import RerankerService
-    from services.document_processor import DocumentProcessor
-    from services.rag_service import RAGService
-    from services.metadata_extractor import MetadataExtractor
+    from .embeddings import EmbeddingService
+    from .vector_store import VectorStoreService
+    from .reranker import RerankerService
+    from .rag_service import RAGService
+    from .metadata_extractor import MetadataExtractor
+    from .document_pipeline import DocumentPipelineService
 
     embedding_service = EmbeddingService.get_instance()
     logger.info(f"   ✅ Embedding service ready (model: {settings.embedding_model})")
@@ -109,46 +113,43 @@ async def lifespan(app: FastAPI):
     metadata_extractor = MetadataExtractor()
     logger.info(f"   ✅ Metadata extractor ready")
 
-    # Dokument-Synchronisation
+    document_pipeline = DocumentPipelineService(vector_store_service, metadata_extractor)
+    logger.info(f"   ✅ Document pipeline ready")
+
     logger.info("🔄 Syncing documents with Qdrant...")
     _sync_documents_with_qdrant(vector_store_service)
 
     logger.info("✅ RAG System initialization complete")
 
     logger.info("=" * 80)
-    logger.info("🔄 Starting Zotero Background Services")
+    logger.info("🔄 Starting Background Services")
     logger.info("=" * 80)
 
-    from services.zotero_poller import get_poller
-    from services.document_processing_worker import get_worker
+    from .zotero_poller import get_poller
+    from .document_processing_worker import get_worker
 
+    logger.info("🔧 Initializing Zotero poller...")
     poller = get_poller()
-    worker = get_worker()
-
     await poller.start()
     logger.info(f"   ✅ Zotero poller started (interval: {poller.poll_interval}s)")
 
+    logger.info("🔧 Initializing Document processing worker...")
+    worker = get_worker()
     await worker.start()
     logger.info(f"   ✅ Document worker started (interval: {worker.check_interval}s)")
+    logger.info(f"   ℹ️  Worker will check for pending documents every {worker.check_interval}s")
 
     logger.info("=" * 80)
     logger.info("✅ All services initialized successfully")
     logger.info("=" * 80)
 
-    # ========================================
-    # APP RUNNING
-    # ========================================
     yield
 
-    # ========================================
-    # SHUTDOWN
-    # ========================================
     logger.info("=" * 80)
-    logger.info("👋 Shutting down services...")
+    logger.info("👋 Shutting down ...")
     logger.info("=" * 80)
 
-    # Zotero Background Services stoppen
-    logger.info("🛑 Stopping Zotero background services...")
+    logger.info("🛑 Stopping Zotero background ...")
     await poller.stop()
     logger.info("   ✅ Zotero poller stopped")
 
@@ -160,27 +161,25 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 80)
 
 
-# Export für andere Module
 def get_embedding_service():
-    """Getter für Embedding Service"""
     return embedding_service
 
 
 def get_vector_store_service():
-    """Getter für Vector Store Service"""
     return vector_store_service
 
 
 def get_reranker_service():
-    """Getter für Reranker Service"""
     return reranker_service
 
 
 def get_rag_service():
-    """Getter für RAG Service"""
     return rag_service
 
 
 def get_metadata_extractor():
-    """Getter für Metadata Extractor"""
     return metadata_extractor
+
+
+def get_document_pipeline():
+    return document_pipeline

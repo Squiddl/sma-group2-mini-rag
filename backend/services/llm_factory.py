@@ -8,18 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 def create_llm(streaming: bool = False, max_tokens: int = None, temperature: float = None, **kwargs):
-    """
-    Create an LLM instance based on configured provider.
-
-    Args:
-        streaming: Enable streaming responses
-        max_tokens: Maximum tokens to generate
-        temperature: Sampling temperature
-        **kwargs: Additional provider-specific arguments
-
-    Returns:
-        LLM instance (ChatAnthropic, ChatOpenAI, or ChatOllama)
-    """
     provider = settings.get_active_provider()
     temp = temperature or settings.llm_temperature
     max_tok = max_tokens or settings.llm_max_tokens

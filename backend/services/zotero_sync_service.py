@@ -2,8 +2,8 @@ import logging
 import os
 from typing import Dict
 
-from db.models import Document
-from db.session import SessionLocal
+from persistence.models import Document
+from persistence.session import SessionLocal
 
 from .document_processor import process_document
 from .embeddings import EmbeddingService
@@ -46,13 +46,15 @@ class ZoteroSyncService:
         }
 
         db = SessionLocal()
+        queued_count = 0
         try:
             for item in zotero_items:
                 try:
                     result = self._sync_single_item(item, db)
 
-                    if result['status'] == 'synced':
+                    if result['status'] == 'queued':
                         results['synced'] += 1
+                        queued_count += 1
                     elif result['status'] == 'skipped':
                         results['skipped'] += 1
                     else:
@@ -70,6 +72,9 @@ class ZoteroSyncService:
 
             db.commit()
 
+            # Note: Worker trigger is now handled by the router endpoint
+            logger.info(f"✅ Sync committed to database: {queued_count} document(s) queued")
+
         finally:
             db.close()
 
@@ -78,8 +83,9 @@ class ZoteroSyncService:
 
         return results
 
-    def _sync_single_item(self, zotero_item: Dict, db) -> Dict:
+    # In backend/services/zotero_sync_service.py
 
+    def _sync_single_item(self, zotero_item: Dict, db) -> Dict:
         data = zotero_item.get('data', {})
         item_key = data.get('key')
         item_type = data.get('itemType')
@@ -119,6 +125,7 @@ class ZoteroSyncService:
             download_dir = os.path.join(settings.data_dir, 'zotero_downloads')
             os.makedirs(download_dir, exist_ok=True)
 
+            logger.info(f"📥 Downloading from Zotero: {filename}")
             file_path = self.zotero.download_document(item_key, download_dir)
 
             if not file_path or not os.path.exists(file_path):
@@ -129,73 +136,43 @@ class ZoteroSyncService:
                     'filename': filename
                 }
 
-            logger.info(f"Processing Zotero document: {filename}")
+            logger.info(f"✅ Downloaded: {file_path}")
 
-            first_pages = FileHandler.extract_first_pages_text(file_path, num_pages=2)
-            pdf_metadata = FileHandler.extract_pdf_metadata(file_path)
-
-            extracted_metadata = self.metadata_extractor.extract_metadata_from_text(
-                first_pages,
-                filename,
-                pdf_metadata
-            )
-
-            full_text = FileHandler.extract_text(file_path)
-
+            # Create or update document entry
             if existing:
                 doc = existing
+                doc.file_path = file_path
+                doc.processed = False
+                doc.num_chunks = 0  # Reset chunks
+                # Note: collection_name is a computed property based on doc.id
             else:
                 doc = Document(
                     filename=filename,
                     file_path=file_path,
                     query_enabled=True,
-                    processed=False
+                    processed=False,
+                    num_chunks=0
+                    # Note: collection_name is a computed property based on doc.id
                 )
                 db.add(doc)
-                db.flush()
 
-            pickle_path = os.path.join(settings.pickle_dir, f"doc_{doc.id}.pkl")
-            collection_name = f"{settings.qdrant_collection_prefix}{doc.id}"
-
-            metadata_chunk = None
-            if extracted_metadata and extracted_metadata.get('title') != 'Not found':
-                from .metadata_extractor import create_metadata_chunk
-                metadata_chunk = create_metadata_chunk(extracted_metadata, filename)
-
-            chunks = process_document(
-                doc.id,
-                full_text,
-                pickle_path=pickle_path,
-                document_name=filename,
-                metadata_chunk=metadata_chunk
-            )
-
-            # add_documents erstellt Embeddings intern und ruft ensure_collection auf
-            self.vector_store.add_documents(
-                doc.id,
-                chunks,
-                collection_name,
-                document_name=filename
-            )
-
-            doc.processed = True
-            doc.num_chunks = len(chunks)
-            doc.pickle_path = pickle_path
+            db.flush()  # Get doc.id before commit
+            logger.info(f"💾 Document entry created/updated: ID={doc.id}, collection={doc.collection_name}")
 
             db.commit()
-
-            logger.info(f"✓ Synced from Zotero: {filename} ({len(chunks)} chunks)")
+            db.refresh(doc)
 
             return {
-                'status': 'synced',
+                'status': 'queued',
                 'item_key': item_key,
                 'filename': filename,
                 'doc_id': doc.id,
-                'chunks': len(chunks)
+                'file_path': file_path,
+                'collection_name': doc.collection_name
             }
 
         except Exception as exc:
-            logger.error(f"Failed to process {filename}: {exc}")
+            logger.error(f"Failed to sync {filename}: {exc}", exc_info=True)
             db.rollback()
             return {
                 'status': 'failed',
@@ -238,12 +215,14 @@ class ZoteroSyncService:
                 'details': []
             }
 
+            queued_count = 0
             for item in new_items:
                 try:
                     result = self._sync_single_item(item, db)
 
-                    if result['status'] == 'synced':
+                    if result['status'] == 'queued':  # Changed from 'synced'
                         results['synced'] += 1
+                        queued_count += 1
                     elif result['status'] == 'skipped':
                         results['skipped'] += 1
                     else:
@@ -254,6 +233,9 @@ class ZoteroSyncService:
                 except Exception as exc:
                     logger.error(f"Sync failed: {exc}")
                     results['failed'] += 1
+
+            # Note: Worker trigger is now handled by the router endpoint
+            logger.info(f"✅ Sync committed to database: {queued_count} document(s) queued")
 
             return results
 

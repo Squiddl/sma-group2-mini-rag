@@ -25,8 +25,8 @@ const CACHE_KEYS = {
 };
 
 const CACHE_DURATION = 5 * 60 * 1000;
-const POLL_INTERVAL = 3000;
-const MAX_POLL_ATTEMPTS = 100;
+const POLL_INTERVAL = 10000;  // 10s statt 3s → reduziert DB-Last
+const MAX_POLL_ATTEMPTS = 60;  // 60 * 10s = 10min max
 
 let currentChatId = null;
 let chats = [];
@@ -48,11 +48,13 @@ const refreshDocsBtn = document.getElementById('refreshDocsBtn');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
 const toast = document.getElementById('toast');
+const processingIndicator = document.getElementById('processingIndicator');
+const processingCount = document.getElementById('processingCount');
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initializeDocumentCache();
-    Promise.all([loadChats(), loadDocuments()]).catch(console.error);
     setupEventListeners();
+    await Promise.all([loadChats(), loadDocuments()]).catch(console.error);
     startDocumentPolling();
 });
 
@@ -358,13 +360,15 @@ async function loadDocuments(forceRefresh = false) {
     try {
         documents = await apiCall('/documents');
         saveDocumentsToCache(documents);
-        renderDocuments();
 
+        // Start polling first, then render to show processing status correctly
         documents.forEach(doc => {
             if (!doc.processed) {
                 startPollingDocument(doc.id);
             }
         });
+
+        renderDocuments();
     } catch (error) {
         showToast(`${ErrorMessages.DOCUMENTS_LOAD}: ${error.detail || error.message}`, 'error');
         console.error(error);
@@ -376,6 +380,7 @@ function renderDocuments() {
 
     if (documents.length === 0) {
         documentsList.innerHTML = '<div class="empty-state">No documents uploaded</div>';
+        updateProcessingIndicator();
         return;
     }
 
@@ -386,17 +391,28 @@ function renderDocuments() {
 
         const date = new Date(doc.uploaded_at).toLocaleDateString();
         const isProcessed = doc.processed;
-        const isProcessing = !isProcessed && documentPollers.has(doc.id);
+        const isActivelyProcessing = doc.is_actively_processing || false;
+        const isQueued = !isProcessed && !isActivelyProcessing && documentPollers.has(doc.id);
 
         let statusContent = '';
-        if (isProcessing) {
+        if (isActivelyProcessing) {
+            // Currently being processed by worker
             statusContent = `
                 <div class="document-status processing">
                     <span class="status-spinner"></span>
                     <span>Processing...</span>
                 </div>
             `;
+        } else if (isQueued) {
+            // In queue, waiting for worker
+            statusContent = `
+                <div class="document-status queued">
+                    <span class="status-icon">⏳</span>
+                    <span>Queued</span>
+                </div>
+            `;
         } else if (isProcessed) {
+            // Successfully processed
             statusContent = `
                 <div class="document-status processed">
                     <span class="status-icon">✓</span>
@@ -404,6 +420,7 @@ function renderDocuments() {
                 </div>
             `;
         } else {
+            // Not processed and not queued
             statusContent = `
                 <div class="document-status unprocessed">
                     <span class="status-icon">⚠</span>
@@ -425,7 +442,7 @@ function renderDocuments() {
                 <div class="${queryPillClass}">${doc.query_enabled ? 'Query on' : 'Query off'}</div>
             </div>
             <div class="document-actions">
-                ${!isProcessed && !isProcessing ? `<button class="btn-reprocess" data-id="${doc.id}">Reprocess</button>` : ''}
+                ${!isProcessed && !isActivelyProcessing && !isQueued ? `<button class="btn-reprocess" data-id="${doc.id}">Reprocess</button>` : ''}
                 ${isProcessed ? `<button class="doc-toggle ${doc.query_enabled ? 'active' : ''}" data-id="${doc.id}" aria-pressed="${doc.query_enabled}">${doc.query_enabled ? 'ON' : 'OFF'}</button>` : ''}
                 <button class="btn-delete-doc" data-id="${doc.id}">Delete</button>
             </div>
@@ -448,24 +465,38 @@ function renderDocuments() {
 
         documentsList.appendChild(docItem);
     });
+
+    updateProcessingIndicator();
 }
 
-async function reprocessDocument(docId) {
-    try {
-        showLoading('Reprocessing document...');
-        await apiCall(`/documents/${docId}/reprocess`, 'POST');
+function updateProcessingIndicator() {
+    // Only count actively processing documents (not queued)
+    const processingDocs = documents.filter(doc => doc.is_actively_processing === true);
+    const count = processingDocs.length;
 
-        startPollingDocument(docId);
-        await loadDocuments();
-
-        showToast('Document reprocessing started', 'success');
-    } catch (error) {
-        showToast(`${ErrorMessages.DOCUMENT_REPROCESS}: ${error.detail || error.message}`, 'error');
-        console.error(error);
-    } finally {
-        hideLoading();
+    if (count > 0) {
+        processingCount.textContent = count;
+        processingIndicator.style.display = 'flex';
+    } else {
+        processingIndicator.style.display = 'none';
     }
 }
+
+
+ async function reprocessDocument(docId) {
+      try {
+          await apiCall(`/documents/${docId}/reprocess`, 'POST');
+          startPollingDocument(docId);
+          await loadDocuments();
+          showToast('Document reprocessing started', 'success');
+      } catch (error) {
+          showToast(`${ErrorMessages.DOCUMENT_REPROCESS}:
+          ${error.detail || error.message}`, 'error');
+          console.error(error);
+     }
+}
+
+
 
 async function deleteDocument(docId) {
     if (!confirm('Are you sure you want to delete this document?')) return;
@@ -623,6 +654,99 @@ async function startPollingDocument(docId) {
         return;
     }
 
+    // Use SSE for real-time progress
+    try {
+        const eventSource = new EventSource(`${API_BASE}/documents/${docId}/processing-stream`);
+
+        eventSource.addEventListener('waiting', (event) => {
+            const status = JSON.parse(event.data);
+            updateDocumentProgress(docId, status);
+        });
+
+        eventSource.addEventListener('progress', (event) => {
+            const status = JSON.parse(event.data);
+            updateDocumentProgress(docId, status);
+        });
+
+        eventSource.addEventListener('complete', (event) => {
+            const status = JSON.parse(event.data);
+            updateDocumentProgress(docId, status);
+            eventSource.close();
+            documentPollers.delete(docId);
+
+            // Reload documents after completion
+            setTimeout(() => {
+                loadDocuments(true);
+                showToast(`Document processed: ${status.num_chunks} chunks created`, 'success');
+            }, 1000);
+        });
+
+        eventSource.addEventListener('timeout', (event) => {
+            console.warn('Processing timeout for document', docId);
+            eventSource.close();
+            documentPollers.delete(docId);
+            showToast('Document processing timeout', 'warning');
+        });
+
+        eventSource.addEventListener('error', (event) => {
+            console.error('SSE error for document', docId, event);
+            eventSource.close();
+            documentPollers.delete(docId);
+
+            // Fallback to regular polling on SSE error
+            startLegacyPolling(docId);
+        });
+
+        documentPollers.set(docId, eventSource);
+        renderDocuments();
+
+    } catch (error) {
+        console.error('Failed to start SSE, falling back to polling:', error);
+        startLegacyPolling(docId);
+    }
+}
+
+function updateDocumentProgress(docId, status) {
+    const docItem = document.getElementById(`doc-${docId}`);
+    if (!docItem) return;
+
+    const statusRow = docItem.querySelector('.document-status-row');
+    if (!statusRow) return;
+
+    const progressPercent = Math.round(status.progress * 100);
+    const stageEmoji = {
+        'starting': '🚀',
+        'extraction': '📄',
+        'metadata': '📋',
+        'chunking': '✂️',
+        'embedding': '🔢',
+        'storing': '💾',
+        'finalizing': '⚡',
+        'complete': '✅',
+        'queued': '⏳',
+        'error': '❌'
+    };
+
+    const emoji = stageEmoji[status.stage] || '🔄';
+
+    statusRow.innerHTML = `
+        <div class="document-status processing">
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                </div>
+                <span class="progress-text">${emoji} ${status.message} (${progressPercent}%)</span>
+            </div>
+        </div>
+    `;
+}
+
+// Legacy polling fallback for older browsers or SSE failures
+async function startLegacyPolling(docId) {
+    if (documentPollers.has(docId)) {
+        return;
+    }
+
     let attempts = 0;
 
     const pollerId = setInterval(async () => {
@@ -631,19 +755,22 @@ async function startPollingDocument(docId) {
         if (attempts > MAX_POLL_ATTEMPTS) {
             stopPollingDocument(docId);
             showToast('Document processing timeout', 'warning');
+            renderDocuments();
             return;
         }
 
         try {
             const doc = await apiCall(`/documents/${docId}`);
 
+            // Update document in array even if still processing (for potential metadata changes)
+            const index = documents.findIndex(d => d.id === docId);
+            if (index !== -1) {
+                documents[index] = doc;
+            }
+
             if (doc.processed) {
                 stopPollingDocument(docId);
-                const index = documents.findIndex(d => d.id === docId);
-                if (index !== -1) {
-                    documents[index] = doc;
-                    saveDocumentsToCache(documents);
-                }
+                saveDocumentsToCache(documents);
                 renderDocuments();
                 showToast(`Document processed: ${doc.filename}`, 'success');
             }
@@ -663,12 +790,22 @@ async function startPollingDocument(docId) {
     }, POLL_INTERVAL);
 
     documentPollers.set(docId, pollerId);
+
+    // Trigger immediate UI update to show processing spinner
+    renderDocuments();
 }
 
 function stopPollingDocument(docId) {
-    const pollerId = documentPollers.get(docId);
-    if (pollerId) {
-        clearInterval(pollerId);
+    const poller = documentPollers.get(docId);
+    if (poller) {
+        // Handle both EventSource (SSE) and interval-based polling
+        if (poller.close && typeof poller.close === 'function') {
+            // EventSource
+            poller.close();
+        } else {
+            // Legacy polling interval
+            clearInterval(poller);
+        }
         documentPollers.delete(docId);
     }
 }
@@ -1040,3 +1177,4 @@ zoteroSyncBtn.addEventListener('click', syncFromZotero);
 
 const sidebarFooter = document.querySelector('.sidebar-footer');
 sidebarFooter.appendChild(zoteroSyncBtn);
+

@@ -12,9 +12,9 @@ services:
       - rag-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 3
 
   ollama:
     image: ollama/ollama:latest
@@ -57,7 +57,7 @@ services:
       - LLM_MODEL=${LLM_MODEL:-phi3:mini}
       - ZOTERO_LIBRARY_ID=${ZOTERO_LIBRARY_ID}
       - ZOTERO_LIBRARY_TYPE=${ZOTERO_LIBRARY_TYPE}
-      - ZOTERO_API_KEY=${ZOTERO_API_KEY}c
+      - ZOTERO_API_KEY=${ZOTERO_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy

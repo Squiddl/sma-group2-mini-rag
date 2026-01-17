@@ -1,28 +1,34 @@
+import asyncio
 import json
 import logging
 import os
 import queue
 import threading
-import time
+from typing import List, Dict, AsyncGenerator
+from datetime import datetime
+
 import uvicorn
-from typing import List, Dict
-from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
+
+# Configure logging at module level
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
-from db.session import get_db
-from db.models import Chat, Message, Document
+from services.document_pipeline import DocumentPipelineService
 from models.schemas import (
     ChatCreate, ChatResponse, MessageResponse,
     QueryRequest, DocumentUploadResponse,
     DocumentPreferenceUpdate
 )
-from services.settings import settings
-from services.file_handler import FileHandler
-from services.metadata_extractor import create_metadata_chunk
-
+from persistence.models import Chat, Message, Document
+from persistence.session import get_db, SessionLocal
 from services.app_lifespan import (
     lifespan,
     get_embedding_service,
@@ -31,14 +37,19 @@ from services.app_lifespan import (
     get_rag_service,
     get_metadata_extractor
 )
+from services.file_handler import FileHandler
+from services.settings import settings
 from services.zotero_router import router as zotero_router
-from services.document_processor import process_document
-
 logger = logging.getLogger(__name__)
+
+# Global processing status tracker
+processing_status: Dict[int, Dict] = {}
+
+# Track which document is currently being actively processed by the worker
+currently_processing_doc_id: int | None = None
 
 
 def _get_active_doc_collection_map(db: Session) -> Dict[int, str]:
-    """Erstellt Map von aktiven Dokumenten zu Collections"""
     vector_store = get_vector_store_service()
     active_documents = db.query(Document).filter(
         Document.processed == True,
@@ -48,197 +59,15 @@ def _get_active_doc_collection_map(db: Session) -> Dict[int, str]:
 
 
 def _format_sse_event(payload: dict) -> str:
-    """Formatiert Server-Sent Event"""
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _extract_metadata_for_document(file_path: str, filename: str) -> str:
-    """Extrahiert Metadata aus Dokument"""
-    try:
-        logger.info(f"📋 [METADATA] Starting metadata extraction for: {filename}")
-        start_time = time.time()
-
-        logger.info(f"   → Reading first 2 pages for metadata...")
-        first_pages_text = FileHandler.extract_first_pages_text(file_path, num_pages=2)
-        logger.info(f"   → Extracted {len(first_pages_text)} characters from first pages")
-
-        pdf_metadata = None
-        if filename.lower().endswith('.pdf'):
-            logger.info(f"   → Extracting PDF metadata...")
-            pdf_metadata = FileHandler.extract_pdf_metadata(file_path)
-            if pdf_metadata:
-                logger.info(
-                    f"   → PDF metadata: {pdf_metadata.get('num_pages', 0)} pages, "
-                    f"title='{pdf_metadata.get('title', 'N/A')}'"
-                )
-
-        logger.info(f"   → Running LLM-based metadata extraction...")
-        metadata_extractor = get_metadata_extractor()
-        extracted_metadata = metadata_extractor.extract_metadata_from_text(
-            first_pages_text,
-            filename,
-            pdf_metadata
-        )
-
-        metadata_chunk = create_metadata_chunk(extracted_metadata, filename)
-
-        elapsed = time.time() - start_time
-        logger.info(f"✅ [METADATA] Extraction complete in {elapsed:.1f}s")
-        logger.info(f"   → Title: {extracted_metadata.get('title', 'N/A')}")
-        logger.info(f"   → Author: {extracted_metadata.get('authors', 'N/A')}")
-        logger.info(f"   → Type: {extracted_metadata.get('document_type', 'N/A')}")
-
-        return metadata_chunk
-
-    except Exception as exc:
-        logger.warning(f"⚠️  [METADATA] Extraction failed for {filename}: {exc}")
-        return None
-
-
-def _process_document_pipeline(document: Document, file_path: str) -> Document:
-    """
-    Vollständige Document-Processing-Pipeline
-
-    Steps:
-    1. Text Extraction
-    2. Metadata Extraction
-    3. Chunking
-    4. Vectorization
-    5. Database Update
-    """
-    pipeline_start = time.time()
-    vector_store = get_vector_store_service()
-
-    logger.info("=" * 80)
-    logger.info(f"📄 [PIPELINE START] Processing document")
-    logger.info(f"   • Document ID: {document.id}")
-    logger.info(f"   • Filename: {document.filename}")
-    logger.info(f"   • Collection: {document.collection_name}")
-    logger.info("=" * 80)
-
-    try:
-        # STEP 1: Text Extraction
-        logger.info(f"🔤 [STEP 1/5] Text Extraction")
-        text_start = time.time()
-
-        text = FileHandler.extract_text(file_path)
-
-        text_elapsed = time.time() - text_start
-        logger.info(f"✅ [STEP 1/5] Text extracted in {text_elapsed:.1f}s")
-        logger.info(f"   → Characters: {len(text):,}")
-        logger.info(f"   → Words: ~{len(text.split()):,}")
-        logger.info(f"   → Lines: ~{text.count(chr(10)):,}")
-
-        # STEP 2: Metadata Extraction
-        logger.info(f"📋 [STEP 2/5] Metadata Extraction")
-        metadata_start = time.time()
-
-        metadata_chunk = _extract_metadata_for_document(file_path, document.filename)
-
-        metadata_elapsed = time.time() - metadata_start
-        if metadata_chunk:
-            logger.info(f"✅ [STEP 2/5] Metadata extracted in {metadata_elapsed:.1f}s")
-        else:
-            logger.info(f"⚠️  [STEP 2/5] No metadata extracted ({metadata_elapsed:.1f}s)")
-
-        # STEP 3: Document Chunking
-        logger.info(f"✂️  [STEP 3/5] Document Chunking")
-        chunk_start = time.time()
-
-        pickle_path = os.path.join(settings.pickle_dir, f"doc_{document.id}.pkl")
-        collection_name = document.collection_name
-
-        if not collection_name:
-            raise ValueError(f"Invalid collection_name for document {document.id}: {collection_name}")
-
-        logger.info(f"   → Chunking with parent-child strategy...")
-        logger.info(f"   → Parent size: {settings.parent_chunk_size} tokens")
-        logger.info(f"   → Child size: {settings.child_chunk_size or settings.chunk_size} tokens")
-
-        chunks = process_document(
-            document.id,
-            text,
-            pickle_path=pickle_path,
-            document_name=document.filename,
-            metadata_chunk=metadata_chunk
-        )
-
-        chunk_elapsed = time.time() - chunk_start
-        logger.info(f"✅ [STEP 3/5] Chunking complete in {chunk_elapsed:.1f}s")
-        logger.info(f"   → Total chunks: {len(chunks)}")
-        logger.info(f"   → Metadata chunks: {sum(1 for c in chunks if c.get('is_metadata'))}")
-        logger.info(f"   → Content chunks: {sum(1 for c in chunks if not c.get('is_metadata'))}")
-        logger.info(f"   → Pickle saved: {pickle_path}")
-
-        # STEP 4: Vector Embedding & Storage
-        logger.info(f"🔢 [STEP 4/5] Vector Embedding & Storage")
-        vector_start = time.time()
-
-        logger.info(f"   → Resetting collection '{collection_name}'...")
-        vector_store.reset_collection(collection_name)
-
-        logger.info(f"   → Generating embeddings for {len(chunks)} chunks...")
-        logger.info(f"   → Embedding model: {settings.embedding_model}")
-
-        vector_store.add_documents(
-            document.id,
-            chunks,
-            collection_name,
-            document_name=document.filename
-        )
-
-        vector_elapsed = time.time() - vector_start
-        logger.info(f"✅ [STEP 4/5] Vectors stored in {vector_elapsed:.1f}s")
-        logger.info(f"   → Collection: {collection_name}")
-        logger.info(f"   → Vectors: {len(chunks)} embeddings")
-
-        # STEP 5: Database Update
-        logger.info(f"💾 [STEP 5/5] Database Update")
-
-        document.pickle_path = pickle_path
-        document.processed = True
-        document.num_chunks = len(chunks)
-
-        # Pipeline-Statistik
-        pipeline_elapsed = time.time() - pipeline_start
-
-        logger.info("=" * 80)
-        logger.info(f"✅ [PIPELINE COMPLETE] Document processing successful!")
-        logger.info(f"   • Total time: {pipeline_elapsed:.1f}s")
-        logger.info(f"   • Text extraction: {text_elapsed:.1f}s ({text_elapsed / pipeline_elapsed * 100:.0f}%)")
-        logger.info(f"   • Metadata: {metadata_elapsed:.1f}s ({metadata_elapsed / pipeline_elapsed * 100:.0f}%)")
-        logger.info(f"   • Chunking: {chunk_elapsed:.1f}s ({chunk_elapsed / pipeline_elapsed * 100:.0f}%)")
-        logger.info(
-            f"   • Vectorization: {vector_elapsed:.1f}s ({vector_elapsed / pipeline_elapsed * 100:.0f}%)"
-        )
-        logger.info(f"   • Document ID: {document.id}")
-        logger.info(f"   • Chunks created: {len(chunks)}")
-        logger.info(f"   • Ready for queries: YES")
-        logger.info("=" * 80)
-
-        return document
-
-    except Exception as exc:
-        pipeline_elapsed = time.time() - pipeline_start
-        logger.error("=" * 80)
-        logger.error(f"❌ [PIPELINE FAILED] Document processing failed after {pipeline_elapsed:.1f}s")
-        logger.error(f"   • Document ID: {document.id}")
-        logger.error(f"   • Filename: {document.filename}")
-        logger.error(f"   • Error: {type(exc).__name__}: {exc}")
-        logger.error("=" * 80)
-        logger.exception("Full traceback:")
-        raise
-
-
-# ========================================
-# FastAPI Application
-# ========================================
 
 app = FastAPI(
     title="RAG System API with Zotero Auto-Sync",
-    description="RAG System mit automatischem Zotero-Polling und Document-Processing",
+    description="RAG System API with automatic Zotero document synchronization",
     version="1.0.0",
-    lifespan=lifespan  # Kombinierter Lifespan Manager
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -249,17 +78,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Zotero-Router einbinden
 app.include_router(zotero_router)
-
-
-# ========================================
-# API Endpoints
-# ========================================
 
 @app.get("/", tags=["Health"])
 async def root():
-    """Root-Endpunkt mit System-Info"""
     return {
         "status": "ok",
         "message": "RAG System API with Zotero Auto-Sync",
@@ -278,6 +100,7 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health-Check für alle Services"""
+    # Import at endpoint scope to avoid issues during app initialization
     from services.zotero_poller import get_poller
     from services.document_processing_worker import get_worker
     from services.zotero_service import ZoteroService
@@ -309,13 +132,8 @@ async def health_check():
     }
 
 
-# ========================================
-# Chat Endpoints
-# ========================================
-
 @app.post("/chats", response_model=ChatResponse, tags=["Chats"])
 async def create_chat(chat: ChatCreate, db: Session = Depends(get_db)):
-    """Erstellt einen neuen Chat"""
     db_chat = Chat(title=chat.title)
     db.add(db_chat)
     db.commit()
@@ -326,7 +144,6 @@ async def create_chat(chat: ChatCreate, db: Session = Depends(get_db)):
 
 @app.get("/chats", response_model=List[ChatResponse], tags=["Chats"])
 async def list_chats(db: Session = Depends(get_db)):
-    """Listet alle Chats"""
     chats = db.query(Chat).order_by(Chat.updated_at.desc()).all()
     logger.info(f"📋 Listed {len(chats)} chats")
     return chats
@@ -334,7 +151,6 @@ async def list_chats(db: Session = Depends(get_db)):
 
 @app.get("/chats/{chat_id}", response_model=ChatResponse, tags=["Chats"])
 async def get_chat(chat_id: int, db: Session = Depends(get_db)):
-    """Holt einen spezifischen Chat"""
     chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not chat:
         logger.warning(f"⚠️  Chat {chat_id} not found")
@@ -345,7 +161,6 @@ async def get_chat(chat_id: int, db: Session = Depends(get_db)):
 
 @app.delete("/chats/{chat_id}", tags=["Chats"])
 async def delete_chat(chat_id: int, db: Session = Depends(get_db)):
-    """Löscht einen Chat"""
     chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -358,7 +173,6 @@ async def delete_chat(chat_id: int, db: Session = Depends(get_db)):
 
 @app.get("/chats/{chat_id}/messages", response_model=List[MessageResponse], tags=["Messages"])
 async def get_messages(chat_id: int, db: Session = Depends(get_db)):
-    """Holt alle Messages eines Chats"""
     messages = (
         db.query(Message)
         .filter(Message.chat_id == chat_id)
@@ -369,26 +183,66 @@ async def get_messages(chat_id: int, db: Session = Depends(get_db)):
     return messages
 
 
-# ========================================
-# Document Endpoints
-# ========================================
+@app.get("/documents", response_model=List[DocumentUploadResponse], tags=["Documents"])
+async def list_documents(db: Session = Depends(get_db)):
+    docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
+    logger.info(f"📚 Listed {len(docs)} documents")
+
+    # Add is_actively_processing flag to each document
+    result = []
+    for doc in docs:
+        doc_dict = {
+            "id": doc.id,
+            "filename": doc.filename,
+            "file_path": doc.file_path,
+            "uploaded_at": doc.uploaded_at,
+            "processed": doc.processed,
+            "num_chunks": doc.num_chunks,
+            "collection_name": doc.collection_name,
+            "query_enabled": doc.query_enabled,
+            "pickle_path": doc.pickle_path,
+            "is_actively_processing": currently_processing_doc_id == doc.id
+        }
+        result.append(doc_dict)
+
+    return result
+
+@app.get("/documents/{doc_id}", response_model=DocumentUploadResponse, tags=["Documents"])
+async def get_document(doc_id: int, db: Session = Depends(get_db)):
+    document = db.query(Document).filter(Document.id == doc_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Add is_actively_processing flag
+    doc_dict = {
+        "id": document.id,
+        "filename": document.filename,
+        "file_path": document.file_path,
+        "uploaded_at": document.uploaded_at,
+        "processed": document.processed,
+        "num_chunks": document.num_chunks,
+        "collection_name": document.collection_name,
+        "query_enabled": document.query_enabled,
+        "pickle_path": document.pickle_path,
+        "is_actively_processing": currently_processing_doc_id == doc_id
+    }
+
+    return doc_dict
+
 
 @app.post("/documents", response_model=DocumentUploadResponse, tags=["Documents"])
 async def upload_document(
         file: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
-    """Lädt ein Dokument hoch und verarbeitet es"""
     logger.info(f"📤 Upload request received: {file.filename} ({file.content_type})")
 
     try:
-        # File speichern
         logger.info(f"💾 Saving file to disk...")
         file_path = FileHandler.save_upload(file.file, file.filename, settings.upload_dir)
         file_size = os.path.getsize(file_path)
         logger.info(f"✅ File saved: {file_path} ({file_size:,} bytes)")
 
-        # DB Eintrag erstellen
         logger.info(f"💾 Creating database entry...")
         db_document = Document(
             filename=file.filename,
@@ -398,64 +252,149 @@ async def upload_document(
         db.add(db_document)
         db.commit()
         db.refresh(db_document)
-
-        logger.info(f"✅ Document entry created:")
+        logger.info(f"✅ Document entry created in database:")
         logger.info(f"   • ID: {db_document.id}")
+        logger.info(f"   • Filename: {db_document.filename}")
         logger.info(f"   • Collection: {db_document.collection_name}")
 
-        # Processing-Pipeline
-        db_document = _process_document_pipeline(db_document, file_path)
+        # Trigger worker to check for pending documents immediately
+        from services.document_processing_worker import get_worker
+        worker = get_worker()
+        worker.trigger_check()
 
-        db.commit()
-        db.refresh(db_document)
-
-        logger.info(f"🎉 Document upload complete: {file.filename} (ID: {db_document.id})")
-
+        logger.info(f"✅ Document {db_document.id} queued for async processing (worker notified)")
         return db_document
 
     except Exception as exc:
         db.rollback()
-        logger.error(f"❌ Upload failed for {file.filename}: {type(exc).__name__}: {exc}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing document: {str(exc)}"
-        )
+        logger.error(f"❌ Upload failed for {file.filename}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error processing document: {str(exc)}")
 
 
-@app.get("/documents", response_model=List[DocumentUploadResponse], tags=["Documents"])
-async def list_documents(db: Session = Depends(get_db)):
-    """Listet alle Dokumente"""
-    docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
-    logger.info(f"📚 Listed {len(docs)} documents")
-    return docs
+@app.get("/documents/{doc_id}/processing-stream", tags=["Documents"])
+async def stream_processing_status(doc_id: int, db: Session = Depends(get_db)):
+    """Stream real-time processing status updates via Server-Sent Events"""
 
-
-@app.post("/documents/{doc_id}/reprocess", response_model=DocumentUploadResponse, tags=["Documents"])
-async def reprocess_document(doc_id: int, db: Session = Depends(get_db)):
-    """Verarbeitet ein Dokument neu"""
+    # Verify document exists
     document = db.query(Document).filter(Document.id == doc_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if not document.file_path or not os.path.exists(document.file_path):
+    async def event_generator() -> AsyncGenerator:
+        try:
+            last_status = None
+            retry_count = 0
+            max_retries = 120  # 2 minutes max (1s interval)
+
+            while retry_count < max_retries:
+                # Get current status from global tracker
+                current_status = processing_status.get(doc_id, {})
+
+                # Check if document is now processed (from DB)
+                db_session = SessionLocal()
+                try:
+                    doc = db_session.query(Document).filter(Document.id == doc_id).first()
+                    if doc and doc.processed:
+                        # Send final completion event
+                        yield {
+                            "event": "complete",
+                            "data": json.dumps({
+                                "doc_id": doc_id,
+                                "stage": "complete",
+                                "progress": 1.0,
+                                "message": f"Processing complete - {doc.num_chunks} chunks created",
+                                "processed": True,
+                                "num_chunks": doc.num_chunks,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        }
+                        break
+                finally:
+                    db_session.close()
+
+                # Send progress update if status changed
+                if current_status and current_status != last_status:
+                    yield {
+                        "event": "progress",
+                        "data": json.dumps(current_status)
+                    }
+                    last_status = current_status.copy()
+                elif not current_status:
+                    # No status yet, send waiting event
+                    yield {
+                        "event": "waiting",
+                        "data": json.dumps({
+                            "doc_id": doc_id,
+                            "stage": "queued",
+                            "progress": 0.0,
+                            "message": "Waiting for worker to start processing...",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    }
+
+                await asyncio.sleep(1.0)  # 1 second updates
+                retry_count += 1
+
+            # Timeout reached
+            if retry_count >= max_retries:
+                yield {
+                    "event": "timeout",
+                    "data": json.dumps({
+                        "doc_id": doc_id,
+                        "message": "Processing timeout - document may still be processing",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                }
+
+        except asyncio.CancelledError:
+            logger.info(f"SSE stream cancelled for document {doc_id}")
+        except Exception as exc:
+            logger.error(f"SSE stream error for document {doc_id}: {exc}", exc_info=True)
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "doc_id": doc_id,
+                    "message": str(exc),
+                    "timestamp": datetime.now().isoformat()
+                })
+            }
+
+    return EventSourceResponse(event_generator())
+
+
+@app.post("/documents/{doc_id}/reprocess", response_model=DocumentUploadResponse, tags=["Documents"])
+async def reprocess_document(
+        doc_id: int,
+        db: Session = Depends(get_db)
+):
+    document = db.query(Document).filter(Document.id == doc_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not document.file_path:
         raise HTTPException(status_code=400, detail="Document file not found on disk")
 
     logger.info(f"🔄 Reprocessing document {doc_id}: {document.filename}")
 
     try:
-        document = _process_document_pipeline(document, document.file_path)
+        document.processed = False
         db.commit()
+
+        # Trigger worker to check for pending documents immediately
+        from services.document_processing_worker import get_worker
+        worker = get_worker()
+        worker.trigger_check()
+
+        logger.info(f"✅ Document {doc_id} queued for async reprocessing (worker notified)")
+
         db.refresh(document)
-        logger.info(f"✅ Reprocessing complete for doc {doc_id}")
         return document
 
     except Exception as exc:
         db.rollback()
-        logger.exception(f"❌ Reprocessing failed for document {document.filename}: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error reprocessing document: {str(exc)}"
-        )
+        logger.error(f"❌ Reprocessing failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error reprocessing document: {str(exc)}")
+
 
 
 @app.patch("/documents/{doc_id}/preferences", response_model=DocumentUploadResponse, tags=["Documents"])
@@ -464,7 +403,6 @@ async def update_document_preferences(
         preferences: DocumentPreferenceUpdate,
         db: Session = Depends(get_db)
 ):
-    """Aktualisiert Dokument-Präferenzen (query_enabled)"""
     document = db.query(Document).filter(Document.id == doc_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -482,7 +420,6 @@ async def update_document_preferences(
 
 @app.delete("/documents/{doc_id}", tags=["Documents"])
 async def delete_document(doc_id: int, db: Session = Depends(get_db)):
-    """Löscht ein Dokument komplett"""
     document = db.query(Document).filter(Document.id == doc_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -494,7 +431,6 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
     file_path = document.file_path
     vector_store = get_vector_store_service()
 
-    # DB-Eintrag löschen
     try:
         db.delete(document)
         db.commit()
@@ -507,7 +443,6 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
             detail=f"Error deleting document from database: {str(exc)}"
         )
 
-    # Cleanup (Fehler nicht kritisch)
     try:
         vector_store.delete_document(collection_name)
         logger.info(f"   ✅ Deleted collection: {collection_name}")
@@ -532,11 +467,6 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
 
 @app.post("/query/stream", tags=["Query"])
 async def query_documents_stream(request: QueryRequest, db: Session = Depends(get_db)):
-    """
-    Query-Endpunkt mit Streaming-Response
-
-    Verwendet Multi-Query RAG mit Reranking und Parent-Document-Retrieval
-    """
     logger.info(f"🔍 Query received: '{request.query[:100]}...' (chat_id: {request.chat_id})")
 
     try:
@@ -555,7 +485,6 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
         ]
         logger.info(f"   → Chat history: {len(messages)} messages")
 
-        # Aktive Dokumente holen
         doc_collection_map = _get_active_doc_collection_map(db)
         if not doc_collection_map:
             logger.warning(f"   ⚠️  No active documents for query")
@@ -626,7 +555,6 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
     retrieval_thread.start()
 
     def event_generator():
-        """Generator für Server-Sent Events"""
         accumulated_answer = ""
         try:
             while True:

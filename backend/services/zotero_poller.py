@@ -2,24 +2,34 @@ import asyncio
 import logging
 from typing import Optional
 
-from db.models import Document
-from db.session import SessionLocal
+from persistence.models import Document
+from persistence.session import SessionLocal
 from .zotero_service import ZoteroService
 
 logger = logging.getLogger(__name__)
 
 
 class ZoteroPoller:
-    """Async Poller für Zotero - checkt alle 15 Sekunden nach neuen Dokumenten"""
+    def __init__(self, auto_sync: bool = True):
+        """
+        Initialize Zotero Poller.
 
-    def __init__(self):
+        Args:
+            auto_sync: If True, automatically download and queue new documents.
+                      If False, only log new documents (manual sync required).
+        """
         self.zotero = ZoteroService.get_instance()
         self.running = False
         self._task: Optional[asyncio.Task] = None
-        self.poll_interval = 15  # Sekunden
+        self.poll_interval = 15
+        self.auto_sync = auto_sync
+
+        if self.auto_sync:
+            logger.info("Zotero Poller: Auto-sync ENABLED (new docs will be downloaded automatically)")
+        else:
+            logger.info("Zotero Poller: Auto-sync DISABLED (manual sync required)")
 
     async def start(self):
-        """Startet den Polling-Loop"""
         if self.running:
             logger.warning("Zotero poller already running")
             return
@@ -29,7 +39,6 @@ class ZoteroPoller:
         logger.info(f"Zotero poller started (interval: {self.poll_interval}s)")
 
     async def stop(self):
-        """Stoppt den Polling-Loop"""
         self.running = False
         if self._task:
             self._task.cancel()
@@ -50,55 +59,73 @@ class ZoteroPoller:
             await asyncio.sleep(self.poll_interval)
 
     async def _check_for_new_documents(self):
-        """Prüft auf neue Dokumente in Zotero"""
         if not self.zotero.is_enabled():
             return
 
-        # Asyncio-kompatible DB-Operation in executor ausführen
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._sync_check_documents)
 
     def _sync_check_documents(self):
-        """Synchrone Methode zum Prüfen und Hinzufügen neuer Dokumente"""
+        """Check for new documents and automatically sync them."""
         db = SessionLocal()
         try:
-            # Alle existierenden Dateinamen
             existing_filenames = {
                 doc.filename for doc in db.query(Document).all()
             }
 
-            # Alle Zotero Items
             zotero_items = self.zotero.get_all_documents()
 
             new_count = 0
             for item in zotero_items:
                 data = item.get('data', {})
 
-                # Nur Attachments
                 if data.get('itemType') != 'attachment':
                     continue
 
                 filename = data.get('filename') or data.get('title', '')
 
-                # Nur PDFs
                 if not filename.lower().endswith('.pdf'):
                     continue
 
-                # Prüfen ob neu
                 if filename and filename not in existing_filenames:
-                    # Neues Dokument zur DB hinzufügen (OHNE Processing)
-                    doc = Document(
-                        filename=filename,
-                        file_path=None,  # Wird beim Processing gesetzt
-                        query_enabled=False,  # Erst nach Processing aktivieren
-                        processed=False
-                    )
-                    db.add(doc)
+                    logger.info(f"📋 New document found in Zotero: {filename}")
                     new_count += 1
 
             if new_count > 0:
-                db.commit()
-                logger.info(f"✓ {new_count} neue Dokumente aus Zotero hinzugefügt (wartend auf Processing)")
+                logger.info(f"✓ {new_count} new document(s) found in Zotero")
+
+                if self.auto_sync:
+                    # ✅ AUTO-SYNC ENABLED: Automatically download and queue
+                    logger.info(f"🔄 Auto-syncing {new_count} document(s)...")
+
+                    try:
+                        from .zotero_sync_service import ZoteroSyncService
+                        sync_service = ZoteroSyncService()
+
+                        result = sync_service.sync_new_documents_only()
+
+                        synced = result.get('synced', 0)
+                        failed = result.get('failed', 0)
+                        skipped = result.get('skipped', 0)
+
+                        logger.info(f"✅ Auto-sync complete: {synced} queued, {skipped} skipped, {failed} failed")
+
+                        if synced > 0:
+                            logger.info(f"📢 {synced} document(s) queued for processing")
+                            # Trigger worker immediately after auto-sync
+                            try:
+                                from .document_processing_worker import get_worker
+                                worker = get_worker()
+                                worker.trigger_check()
+                                logger.info(f"📢 Worker triggered: {synced} document(s) ready for processing")
+                            except Exception as worker_exc:
+                                logger.warning(f"Failed to trigger worker: {worker_exc}")
+
+                    except Exception as sync_exc:
+                        logger.error(f"❌ Auto-sync failed: {sync_exc}", exc_info=True)
+                else:
+                    # ❌ AUTO-SYNC DISABLED: Only notify, manual sync required
+                    logger.info(f"ℹ️  Use /zotero/sync/new to download (auto-sync disabled)")
 
         except Exception as exc:
             logger.error(f"Failed to check Zotero documents: {exc}")
@@ -107,12 +134,10 @@ class ZoteroPoller:
             db.close()
 
 
-# Globale Poller-Instanz
 _poller: Optional[ZoteroPoller] = None
 
 
 def get_poller() -> ZoteroPoller:
-    """Gibt die globale Poller-Instanz zurück"""
     global _poller
     if _poller is None:
         _poller = ZoteroPoller()

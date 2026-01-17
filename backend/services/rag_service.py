@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any, Iterator, Callable, Optional, Tuple, Set
 
 from cachetools import TTLCache
-from langchain.schema import HumanMessage, SystemMessage, AIMessage  # type: ignore[import-not-found]
+from langchain.schema import HumanMessage, SystemMessage, AIMessage
 from sqlalchemy.orm import Session
 
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -14,7 +14,7 @@ from .document_processor import DocumentProcessor, load_parent_document
 from .llm_factory import create_llm
 from .reranker import RerankerService
 from .vector_store import VectorStoreService
-from db.models import Document
+from persistence.models import Document
 
 logger = logging.getLogger(__name__)
 

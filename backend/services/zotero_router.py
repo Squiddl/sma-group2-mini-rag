@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 from typing import Dict
 import logging
 
@@ -16,7 +16,8 @@ def init_zotero_router():
 
 
 @router.post("/sync")
-async def trigger_sync(background_tasks: BackgroundTasks) -> Dict:
+async def trigger_sync() -> Dict:
+    """Synchronously sync all Zotero documents and trigger worker"""
     if not zotero_sync_service:
         init_zotero_router()
 
@@ -26,16 +27,29 @@ async def trigger_sync(background_tasks: BackgroundTasks) -> Dict:
             "message": "Zotero not configured"
         }
 
-    background_tasks.add_task(zotero_sync_service.sync_all_documents)
+    logger.info("🔄 Starting synchronous Zotero sync (all documents)...")
+    result = zotero_sync_service.sync_all_documents()
+
+    # Trigger worker immediately after sync
+    if result.get('synced', 0) > 0:
+        try:
+            from .document_processing_worker import get_worker
+            worker = get_worker()
+            worker.trigger_check()
+            logger.info(f"📢 Worker triggered after sync: {result['synced']} document(s) ready")
+        except Exception as exc:
+            logger.warning(f"Failed to trigger worker: {exc}")
 
     return {
-        "status": "started",
-        "message": "Zotero sync started in background"
+        "status": "completed",
+        "message": f"Sync completed: {result['synced']} synced, {result['skipped']} skipped, {result['failed']} failed",
+        "details": result
     }
 
 
 @router.post("/sync/new")
-async def sync_new_only(background_tasks: BackgroundTasks) -> Dict:
+async def sync_new_only() -> Dict:
+    """Synchronously sync only new Zotero documents and trigger worker"""
     if not zotero_sync_service:
         init_zotero_router()
 
@@ -45,11 +59,23 @@ async def sync_new_only(background_tasks: BackgroundTasks) -> Dict:
             "message": "Zotero not configured"
         }
 
-    background_tasks.add_task(zotero_sync_service.sync_new_documents_only)
+    logger.info("🔄 Starting synchronous Zotero sync (new documents only)...")
+    result = zotero_sync_service.sync_new_documents_only()
+
+    # Trigger worker immediately after sync
+    if result.get('synced', 0) > 0:
+        try:
+            from .document_processing_worker import get_worker
+            worker = get_worker()
+            worker.trigger_check()
+            logger.info(f"📢 Worker triggered after sync: {result['synced']} new document(s) ready")
+        except Exception as exc:
+            logger.warning(f"Failed to trigger worker: {exc}")
 
     return {
-        "status": "started",
-        "message": "Syncing new Zotero documents in background"
+        "status": "completed",
+        "message": f"Sync completed: {result['synced']} synced, {result['skipped']} skipped, {result['failed']} failed",
+        "details": result
     }
 
 

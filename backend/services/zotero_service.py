@@ -7,7 +7,6 @@ from .settings import settings
 
 logger = logging.getLogger(__name__)
 
-
 logger.info("=" * 80)
 logger.info("ZOTERO SERVICE MODULE LOADED")
 logger.info(f"Raw env ZOTERO_LIBRARY_ID: '{os.environ.get('ZOTERO_LIBRARY_ID', 'NOT SET')}'")
@@ -15,6 +14,7 @@ logger.info(f"Raw env ZOTERO_API_KEY: '{os.environ.get('ZOTERO_API_KEY', 'NOT SE
 logger.info(f"Settings library_id: '{settings.zotero_library_id}'")
 logger.info(f"Settings api_key: '{settings.zotero_api_key[:10] if settings.zotero_api_key else 'EMPTY'}...'")
 logger.info("=" * 80)
+
 
 class ZoteroService:
     _instance = None
@@ -91,13 +91,31 @@ class ZoteroService:
         try:
             item = self.client.item(item_key)
             if not item:
+                logger.error(f"Item {item_key} not found")
                 return None
 
-            file_path = self.client.dump(item_key, path=output_dir)
+            data = item.get('data', {})
+            filename = data.get('filename') or data.get('title', f"{item_key}.pdf")
+
+            # Ensure .pdf extension
+            if not filename.lower().endswith('.pdf'):
+                filename += '.pdf'
+
+            # Download file content
+            file_content = self.client.file(item_key)
+
+            # Save to disk
+            os.makedirs(output_dir, exist_ok=True)
+            file_path = os.path.join(output_dir, filename)
+
+            with open(file_path, 'wb') as f:
+                f.write(file_content)
+
             logger.info(f"Downloaded document {item_key} to {file_path}")
             return file_path
+
         except Exception as exc:
-            logger.error(f"Download failed for {item_key}: {exc}")
+            logger.error(f"Download failed for {item_key}: {exc}", exc_info=True)
             return None
 
     def create_bibliography_item(self, metadata: Dict[str, str]) -> Optional[str]:
