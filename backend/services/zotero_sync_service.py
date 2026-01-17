@@ -20,7 +20,7 @@ class ZoteroSyncService:
 
     def __init__(self):
         self.zotero = ZoteroService.get_instance()
-        self.metadata_extractor = MetadataExtractor()
+        self.metadata_extractor = MetadataExtractor(use_llm=settings.use_llm_metadata_extraction)
         self.embedding_service = EmbeddingService.get_instance()
         self.vector_store = VectorStoreService(self.embedding_service)
 

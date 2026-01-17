@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -89,7 +91,6 @@ async def root():
         "features": [
             "Document upload & processing",
             "Multi-query RAG with reranking",
-            "Automatic Zotero polling (15s)",
             "Async document processing (30s)",
             "Parent-child chunking strategy",
             "Hybrid search (dense + sparse)"

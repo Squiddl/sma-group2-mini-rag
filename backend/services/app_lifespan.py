@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
     rag_service = RAGService(vector_store_service, reranker_service, doc_processor)
     logger.info(f"   ✅ RAG service ready")
 
-    metadata_extractor = MetadataExtractor()
+    metadata_extractor = MetadataExtractor(use_llm=settings.use_llm_metadata_extraction)
     logger.info(f"   ✅ Metadata extractor ready")
 
     document_pipeline = DocumentPipelineService(vector_store_service, metadata_extractor)

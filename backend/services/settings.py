@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_timeout: float = 30.0
 
-    embedding_model: str = "" # mixedbread-ai/deepset-mxbai-embed-de-large-v1, intfloat/multilingual-e5-base (Lightweight)
+    embedding_model: str = "intfloat/multilingual-e5-base" # mixedbread-ai/deepset-mxbai-embed-de-large-v1, intfloat/multilingual-e5-base (Lightweight)
                                                                            # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (Minimal)
     embedding_batch_size: int = 32
     embedding_cache_size: int = 10000
@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     reranker_batch_size: int = 16
 
     use_docling_parser: bool = True
+
+    # Metadata extraction: Set to False for faster processing (no LLM call)
+    # True = Slow but accurate (~30s per document with LLM)
+    # False = Fast but basic (~0.1s per document, uses only PDF metadata)
+    use_llm_metadata_extraction: bool = False
 
     docling_use_vlm: bool = False
     docling_vlm_backend: str = "transformers"  # "transformers" or "mlx"

@@ -145,8 +145,21 @@ def create_metadata_chunk(metadata: Dict[str, str], document_name: str) -> str:
 
 
 class MetadataExtractor:
-    def __init__(self):
-        self.llm = create_llm(temperature=0.0, max_tokens=1024)
+    def __init__(self, use_llm: bool = True):
+        """
+        Initialize metadata extractor.
+
+        Args:
+            use_llm: If False, skip LLM-based extraction and use only PDF metadata.
+                    This speeds up processing significantly (~28s -> <1s).
+        """
+        self.use_llm = use_llm
+        self.llm = create_llm(temperature=0.0, max_tokens=1024) if use_llm else None
+
+        if not use_llm:
+            logger.info("⚡ MetadataExtractor: LLM extraction DISABLED (fast mode)")
+        else:
+            logger.info("🔬 MetadataExtractor: LLM extraction ENABLED (slow but accurate)")
 
     def extract_metadata_from_text(
             self,
@@ -154,6 +167,13 @@ class MetadataExtractor:
             filename: str,
             pdf_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
+        # Fast path: Use PDF metadata only if LLM is disabled
+        if not self.use_llm:
+            logger.info(f"⚡ [METADATA] Fast extraction (PDF metadata only)")
+            return _create_fallback_metadata(filename, pdf_metadata)
+
+        # Slow path: Use LLM for detailed extraction
+        logger.info(f"🔬 [METADATA] LLM-based extraction (may take ~30s on CPU)")
         pdf_context = self._build_pdf_context(pdf_metadata)
 
         messages = [

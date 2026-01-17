@@ -31,6 +31,25 @@ services:
           memory: 10GB
         reservations:
           memory: 6GB
+    entrypoint: >
+      sh -c "
+        /bin/ollama serve &
+        sleep 5 &&
+        if ! ollama list | grep -q '${LLM_MODEL:-phi3:mini}'; then
+          echo 'Downloading model ${LLM_MODEL:-phi3:mini}...' &&
+          ollama pull ${LLM_MODEL:-phi3:mini} &&
+          echo 'Model downloaded successfully'
+        else
+          echo 'Model ${LLM_MODEL:-phi3:mini} already available'
+        fi &&
+        wait
+      "
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     build:

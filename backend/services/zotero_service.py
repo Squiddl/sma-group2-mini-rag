@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 logger.info("=" * 80)
 logger.info("ZOTERO SERVICE MODULE LOADED")
 logger.info(f"Raw env ZOTERO_LIBRARY_ID: '{os.environ.get('ZOTERO_LIBRARY_ID', 'NOT SET')}'")
-logger.info(f"Raw env ZOTERO_API_KEY: '{os.environ.get('ZOTERO_API_KEY', 'NOT SET')[:10]}...'")
+logger.info(f"Raw env ZOTERO_API_KEY: '{os.environ.get('ZOTERO_API_KEY', 'NOT SET')[:5]}...'")
 logger.info(f"Settings library_id: '{settings.zotero_library_id}'")
 logger.info(f"Settings api_key: '{settings.zotero_api_key[:10] if settings.zotero_api_key else 'EMPTY'}...'")
 logger.info("=" * 80)
@@ -47,7 +47,6 @@ class ZoteroService:
 
         try:
             items = self.client.everything(self.client.top())
-            logger.info(f"Retrieved {len(items)} documents from Zotero")
             return items
         except Exception as exc:
             logger.error(f"Failed to retrieve documents from Zotero: {exc}")

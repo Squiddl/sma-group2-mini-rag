@@ -11,17 +11,10 @@ logger = logging.getLogger(__name__)
 
 class ZoteroPoller:
     def __init__(self, auto_sync: bool = True):
-        """
-        Initialize Zotero Poller.
-
-        Args:
-            auto_sync: If True, automatically download and queue new documents.
-                      If False, only log new documents (manual sync required).
-        """
         self.zotero = ZoteroService.get_instance()
         self.running = False
         self._task: Optional[asyncio.Task] = None
-        self.poll_interval = 15
+        self.poll_interval = 60
         self.auto_sync = auto_sync
 
         if self.auto_sync:
@@ -95,7 +88,6 @@ class ZoteroPoller:
                 logger.info(f"✓ {new_count} new document(s) found in Zotero")
 
                 if self.auto_sync:
-                    # ✅ AUTO-SYNC ENABLED: Automatically download and queue
                     logger.info(f"🔄 Auto-syncing {new_count} document(s)...")
 
                     try:

@@ -37,27 +37,6 @@ DENKE SCHRITT FÜR SCHRITT:
 """
 
 
-QUERY_EXPANSION_PROMPT = """Du bist ein Experte für Suchanfragen-Optimierung.
-
-AUFGABE: Erweitere die folgende Suchanfrage um semantisch verwandte Begriffe und Synonyme, um bessere Retrieval-Ergebnisse zu erzielen.
-
-ORIGINALE ANFRAGE: {query}
-
-REGELN:
-1. Behalte die Kernbedeutung bei
-2. Füge Synonyme und verwandte Begriffe hinzu
-3. Berücksichtige verschiedene Formulierungen
-4. Nutze sowohl spezifische als auch allgemeine Begriffe
-5. Maximal 3-5 Variationen
-
-AUSGABEFORMAT:
-Gib AUSSCHLIESSLICH die erweiterten Suchbegriffe zurück, getrennt durch " | "
-
-Beispiel:
-Input: "Klimawandel Ursachen"
-Output: "Klimawandel Ursachen | globale Erwärmung Gründe | Treibhauseffekt Faktoren | anthropogener Klimawandel"
-
-Erweiterte Anfrage:"""
 
 
 METADATA_EXTRACTION_PROMPT = """Du bist ein Experte für wissenschaftliche Metadatenextraktion.

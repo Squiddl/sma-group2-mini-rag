@@ -140,6 +140,9 @@ ZOTERO_LIBRARY_TYPE=user  # oder "group"
 **Erweiterte Konfiguration (optional):**
 
 ```env
+# Metadata Extraction Speed (see METADATA-EXTRACTION-SPEED.md)
+USE_LLM_METADATA_EXTRACTION=false  # false=fast (~0.1s), true=slow (~30s)
+
 # Models (defaults in settings.py)
 EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1
 RERANKER_MODEL=BAAI/bge-reranker-v2-m3
