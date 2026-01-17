@@ -70,7 +70,6 @@ class ZoteroSyncService:
 
             db.commit()
 
-            # Note: Worker trigger is now handled by the router endpoint
             logger.info(f"✅ Sync committed to database: {queued_count} document(s) queued")
 
         finally:
@@ -81,7 +80,6 @@ class ZoteroSyncService:
 
         return results
 
-    # In backend/services/zotero_sync_service.py
 
     def _sync_single_item(self, zotero_item: Dict, db) -> Dict:
         data = zotero_item.get('data', {})
@@ -136,13 +134,11 @@ class ZoteroSyncService:
 
             logger.info(f"✅ Downloaded: {file_path}")
 
-            # Create or update document entry
             if existing:
                 doc = existing
                 doc.file_path = file_path
                 doc.processed = False
-                doc.num_chunks = 0  # Reset chunks
-                # Note: collection_name is a computed property based on doc.id
+                doc.num_chunks = 0
             else:
                 doc = Document(
                     filename=filename,
@@ -150,11 +146,10 @@ class ZoteroSyncService:
                     query_enabled=True,
                     processed=False,
                     num_chunks=0
-                    # Note: collection_name is a computed property based on doc.id
                 )
                 db.add(doc)
 
-            db.flush()  # Get doc.id before commit
+            db.flush()
             logger.info(f"💾 Document entry created/updated: ID={doc.id}, collection={doc.collection_name}")
 
             db.commit()
@@ -179,6 +174,7 @@ class ZoteroSyncService:
                 'filename': filename
             }
 
+    @property
     def sync_new_documents_only(self) -> Dict:
 
         if not self.zotero.is_enabled():
@@ -218,7 +214,7 @@ class ZoteroSyncService:
                 try:
                     result = self._sync_single_item(item, db)
 
-                    if result['status'] == 'queued':  # Changed from 'synced'
+                    if result['status'] == 'queued':
                         results['synced'] += 1
                         queued_count += 1
                     elif result['status'] == 'skipped':
@@ -232,7 +228,6 @@ class ZoteroSyncService:
                     logger.error(f"Sync failed: {exc}")
                     results['failed'] += 1
 
-            # Note: Worker trigger is now handled by the router endpoint
             logger.info(f"✅ Sync committed to database: {queued_count} document(s) queued")
 
             return results

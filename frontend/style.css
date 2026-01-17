@@ -61,7 +61,6 @@ body::before {
     z-index: 1;
 }
 
-/* Sidebar */
 .sidebar {
     background: linear-gradient(165deg, #0c172d 0%, #0f1c35 60%, #0c1426 100%);
     color: var(--text);
@@ -467,7 +466,6 @@ body::before {
     color: var(--muted);
 }
 
-/* Documents Panel */
 .documents-panel {
     background-color: rgba(255, 255, 255, 0.02);
     border-left: 1px solid var(--stroke);
@@ -688,7 +686,6 @@ body::before {
     box-shadow: 0 6px 18px rgba(16, 185, 129, 0.25);
 }
 
-/* Buttons */
 .btn-primary,
 .btn-secondary,
 .btn-send,
@@ -769,7 +766,6 @@ body::before {
     border-color: rgba(34, 211, 238, 0.4);
 }
 
-/* Loading Overlay */
 .loading-overlay {
     position: fixed;
     top: 0;
@@ -1019,7 +1015,6 @@ body::before {
     border-right-color: var(--accent-2);
 }
 
-/* Progress Bar for Document Processing */
 .progress-container {
     width: 100%;
     display: flex;

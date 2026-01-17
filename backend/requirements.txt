@@ -18,6 +18,7 @@ langchain-openai==0.3.11
 langchain-ollama==0.3.5
 
 docling[rapidocr]>=2.17,<3.0
+docling-core
 pypdf==5.1.0
 python-docx==1.1.2
 tiktoken==0.8.0
@@ -33,4 +34,3 @@ python-dotenv==1.0.1
 httpx==0.28.1
 cachetools==5.5.0
 pyzotero
-docling-core

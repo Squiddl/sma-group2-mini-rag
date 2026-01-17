@@ -93,7 +93,7 @@ def _expand_parent_neighbors(
         if len(expanded) < limit:
             prev_key = (entry['doc_id'], entry['parent_id'] - 1)
             if prev_key[1] >= 0 and prev_key not in seen_parents:
-                prev_text = load_parent_document(document.pickle_path, prev_key[1])  # type: ignore[arg-type]
+                prev_text = load_parent_document(document.pickle_path, prev_key[1])
                 if prev_text:
                     expanded.append({
                         'doc_id': entry['doc_id'],
@@ -118,7 +118,7 @@ def _expand_parent_neighbors(
             if next_key in seen_parents:
                 continue
 
-            next_text = load_parent_document(document.pickle_path, next_key[1])  # type: ignore[arg-type]
+            next_text = load_parent_document(document.pickle_path, next_key[1])
             if not next_text:
                 continue
 
@@ -171,14 +171,14 @@ def _load_parents_from_chunks(
 
         document = doc_cache.get(doc_id)
         if document is None:
-            document = db.query(Document).filter(Document.id == doc_id).first()  # type: ignore[arg-type]
+            document = db.query(Document).filter(Document.id == doc_id).first()
             doc_cache[doc_id] = document
 
         if not document or not document.pickle_path:
             continue
 
         parent_text = load_parent_document(
-            document.pickle_path,  # type: ignore[arg-type]
+            document.pickle_path,
             parent_id,
         )
         if not parent_text:
@@ -288,8 +288,6 @@ class RAGService:
 
         while len(result) < 3:
             result.append(original_query)
-
-        # Cache the result
         self.query_expansion_cache[original_query] = result
         return result
 

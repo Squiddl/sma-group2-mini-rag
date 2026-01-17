@@ -14,10 +14,9 @@ def get_active_doc_collection_map(db: Session) -> Dict[int, str]:
     from services.app_lifespan import get_vector_store_service
 
     vector_store = get_vector_store_service()
-    active_documents = db.query(Document).filter(
-        Document.processed == True,
-        Document.query_enabled == True
-    ).all()
+    active_documents = (db.query(Document)
+                        .filter(Document.processed == True, Document.query_enabled == True)
+                        .all())
 
     return vector_store.build_collection_map(active_documents)
 

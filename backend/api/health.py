@@ -1,4 +1,4 @@
-# backend/api/health.py
+
 from fastapi import APIRouter
 
 from services.app_lifespan import (

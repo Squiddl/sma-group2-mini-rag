@@ -6,8 +6,6 @@ router = APIRouter()
 
 @router.post("/document", response_model=IngestResponse)
 async def ingest_document(file: UploadFile = File(...)):
-    # TODO: Inject ingest service
-    # TODO: Save file, extract text, chunk, embed, store
     if file.content_type not in ["application/pdf", "text/plain"]:
         raise HTTPException(400, "Unsupported file type")
 

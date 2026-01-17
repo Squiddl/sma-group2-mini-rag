@@ -143,35 +143,18 @@ class EmbeddingService:
         logger.info(f"   → Cache size: {settings.embedding_cache_size} entries")
 
     def warmup(self):
-        """
-        Warmup the model with dummy embeddings to ensure it's fully loaded.
-
-        This performs inference with various text lengths to properly initialize
-        the model and any JIT compilation. Recommended by sentence-transformers
-        to avoid cold-start latency on first real request.
-        """
         logger.info(f"🔥 [EMBEDDING] Warming up model...")
         import time
         warmup_start = time.time()
 
-        # Warmup with various text lengths (short, medium, long)
-        warmup_texts = [
-            "test",  # Very short
-            "This is a warmup test for the embedding model.",  # Medium
-            "This is a longer warmup text to ensure the model is fully loaded and ready. " * 5  # Long
-        ]
-
-        # Single embedding warmup
+        warmup_texts = ["This is a warmup test for the embedding model.", "Five Liner... " * 5]
         _ = self.model.encode(warmup_texts[0], show_progress_bar=False, convert_to_numpy=True)
-
-        # Batch embedding warmup (more realistic)
         _ = self.model.encode(warmup_texts, show_progress_bar=False, convert_to_numpy=True)
 
         warmup_time = time.time() - warmup_start
         logger.info(f"✅ [EMBEDDING] Warmup completed in {warmup_time:.2f}s")
 
     def embed_text(self, text: str) -> List[float]:
-        """Embed text with LRU caching."""
         cached = self.cache.get(text)
         if cached is not None:
             logger.debug(f"   [CACHE HIT] Embedding retrieved from cache")
@@ -182,7 +165,6 @@ class EmbeddingService:
         return embedding
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """Embed multiple texts with caching."""
         embeddings = []
         uncached_texts = []
         uncached_indices = []
@@ -205,7 +187,6 @@ class EmbeddingService:
         return embeddings
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get embedding cache statistics."""
         return self.cache.get_stats()
 
     def embed_sparse(self, text: str) -> Dict[str, Any]:

@@ -18,13 +18,9 @@ logger = logging.getLogger(__name__)
 class DocumentProcessingWorker:
     def __init__(self):
         self.zotero = ZoteroService.get_instance()
-
-        # Initialize services for pipeline
         self.metadata_extractor = MetadataExtractor(use_llm=settings.use_llm_metadata_extraction)
         self.embedding_service = EmbeddingService.get_instance()
         self.vector_store = VectorStoreService(self.embedding_service)
-
-        # Create pipeline service
         self.pipeline = DocumentPipelineService(
             self.vector_store,
             self.metadata_extractor
@@ -58,10 +54,6 @@ class DocumentProcessingWorker:
         logger.info("Document processing worker stopped")
 
     def trigger_check(self):
-        """
-        Trigger an immediate check for pending documents.
-        Thread-safe: Can be called from any thread or async context.
-        """
         if not self._check_event or not self.running:
             logger.warning("⚠️  Worker not running, cannot trigger check")
             return
@@ -114,7 +106,6 @@ class DocumentProcessingWorker:
                 logger.info("⚡ [WORKER] Immediate check triggered by upload/sync!")
                 self._check_event.clear()
             except asyncio.TimeoutError:
-                # Normal periodic check
                 logger.debug("⏰ [WORKER] Periodic check (timeout reached)")
                 pass
 
@@ -123,10 +114,6 @@ class DocumentProcessingWorker:
         await loop.run_in_executor(None, self.process_documents)
 
     def process_documents(self):
-        """
-        Process all pending documents continuously, one by one.
-        Keeps processing until no more pending documents are found.
-        """
         import time
         from sqlalchemy import or_
         db = SessionLocal()
@@ -141,7 +128,7 @@ class DocumentProcessingWorker:
                 pending_doc = db.query(Document).filter(
                     Document.processed == False,
                     or_(Document.num_chunks is None, Document.num_chunks >= 0)
-                ).first()  # Get only ONE document
+                ).first()
 
                 if not pending_doc:
                     if processed_count > 0:
@@ -154,15 +141,12 @@ class DocumentProcessingWorker:
                         logger.info("=" * 80)
                     else:
                         logger.debug("✅ [WORKER] No pending documents found")
-                        # Log total documents for debugging
                         total_docs = db.query(Document).count()
                         processed_docs = db.query(Document).filter(Document.processed == True).count()
                         logger.debug(f"   Total documents in DB: {total_docs}")
                         logger.debug(f"   Already processed: {processed_docs}")
                         logger.debug(f"   Pending (processed=False): {total_docs - processed_docs}")
-                    break  # Exit the continuous processing loop
-
-                # Process this single document
+                    break
                 doc = pending_doc
                 current_doc_id = doc.id
                 current_doc_filename = doc.filename
@@ -170,16 +154,10 @@ class DocumentProcessingWorker:
                 try:
                     doc_start_time = time.time()
                     processed_count += 1
-
-                    # Refresh document from DB to get latest state
                     db.refresh(doc)
-
-                    # Skip if already processed (could have been processed by another worker/process)
                     if doc.processed:
                         logger.info(f"⏭️  [WORKER] Skipping Doc ID {doc.id}: Already processed")
                         continue
-
-                    # Determine source for logging
                     if doc.file_path:
                         if "zotero" in doc.file_path.lower():
                             source = "🔗 Zotero"
@@ -192,7 +170,7 @@ class DocumentProcessingWorker:
 
                     logger.info("")
                     logger.info("=" * 80)
-                    logger.info(f"🔨 [WORKER] PROCESSING DOCUMENT #{processed_count}")
+                    logger.info(f"🔨 [WORKER] PROCESSING DOCUMENT")
                     logger.info(f"   → Doc ID: {doc.id}")
                     logger.info(f"   → Filename: {doc.filename}")
                     logger.info(f"   → Source: {source}")
@@ -204,8 +182,6 @@ class DocumentProcessingWorker:
                         logger.info(f"📄 [WORKER] File found:")
                         logger.info(f"   → Path: {doc.file_path}")
                         logger.info(f"   → Size: {file_size:,} bytes ({file_size/1024:.1f} KB)")
-
-                        # Mark this document as currently processing
                         try:
                             import sys
                             if 'main' in sys.modules:
@@ -216,11 +192,9 @@ class DocumentProcessingWorker:
                         except Exception as e:
                             logger.debug(f"Could not set currently_processing_doc_id: {e}")
 
-                        # Process through pipeline
                         logger.info(f"🚀 [WORKER] Starting pipeline for Doc ID {doc.id}...")
                         self.pipeline.process_document(doc, doc.file_path, db)
 
-                        # Clear currently processing marker
                         try:
                             import sys
                             if 'main' in sys.modules:
@@ -252,8 +226,8 @@ class DocumentProcessingWorker:
                             f"⚠️  [WORKER] Cannot process Doc ID {doc.id} ({doc.filename}): "
                             f"File not found at {doc.file_path}"
                         )
-                        doc.processed = True  # Mark as processed (failed)
-                        doc.num_chunks = -1  # Use -1 to indicate processing failed
+                        doc.processed = True
+                        doc.num_chunks = -1
                         db.commit()
                         logger.info(f"📝 Marked Doc ID {doc.id} as failed (file not found)")
                         continue
@@ -270,19 +244,17 @@ class DocumentProcessingWorker:
 
                     logger.error(f"❌ Failed to process Doc ID {current_doc_id} ({current_doc_filename}): {exc}", exc_info=True)
 
-                    # Mark document as failed to prevent infinite retries
                     try:
                         failed_doc = db.query(Document).filter(Document.id == current_doc_id).first()
                         if failed_doc:
-                            failed_doc.processed = True  # Mark as processed (but failed)
-                            failed_doc.num_chunks = -1  # Indicate failure
+                            failed_doc.processed = True
+                            failed_doc.num_chunks = -1
                             db.commit()
                             logger.warning(f"⚠️  Marked Doc ID {current_doc_id} as failed to prevent retry loop")
                     except Exception as mark_exc:
                         logger.error(f"Failed to mark document as failed: {mark_exc}")
                         db.rollback()
 
-                    # Continue with next document instead of breaking
                     continue
 
         except Exception as exc:

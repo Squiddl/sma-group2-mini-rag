@@ -18,7 +18,7 @@ from core.state import processing_status, currently_processing_doc_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/documents", tags=["Documents"])  # /api/documents → /documents
+router = APIRouter(prefix="/documents", tags=["Documents"])
 
 @router.get("", response_model=List[DocumentUploadResponse])
 async def list_documents(db: Session = Depends(get_db)):
@@ -79,7 +79,6 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
 
         logger.info(f"✅ Document {db_document.id} queued")
 
-        # Trigger worker
         from services.ingest.worker import get_worker
         get_worker().trigger_check()
 
@@ -93,7 +92,6 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
 
 @router.get("/{doc_id}/processing-stream")
 async def stream_processing_status(doc_id: int, db: Session = Depends(get_db)):
-    """SSE stream for processing status"""
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(404, "Document not found")
@@ -101,10 +99,9 @@ async def stream_processing_status(doc_id: int, db: Session = Depends(get_db)):
     async def event_generator() -> AsyncGenerator:
         try:
             last_status = None
-            for _ in range(120):  # 2 min timeout
+            for _ in range(120):
                 current_status = processing_status.get(doc_id, {})
 
-                # Check completion
                 db_session = SessionLocal()
                 try:
                     doc = db_session.query(Document).filter(Document.id == doc_id).first()
@@ -124,8 +121,6 @@ async def stream_processing_status(doc_id: int, db: Session = Depends(get_db)):
                         break
                 finally:
                     db_session.close()
-
-                # Send updates
                 if current_status and current_status != last_status:
                     yield {"event": "progress", "data": json.dumps(current_status)}
                     last_status = current_status.copy()
@@ -196,12 +191,8 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Document not found")
 
     vector_store = get_vector_store_service()
-
-    # Delete from DB
     db.delete(doc)
     db.commit()
-
-    # Cleanup
     try:
         vector_store.delete_document(doc.collection_name)
     except Exception as exc:

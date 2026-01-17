@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     qdrant_prefer_grpc: bool = True
     qdrant_collection_prefix: str = "doc_"
 
-    llm_provider: str = ""  # anthropic, openai, oder ollama (default)
+    llm_provider: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     ollama_base_url: str = "http://ollama:11434"
@@ -20,23 +20,18 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_timeout: float = 30.0
 
-    embedding_model: str = "intfloat/multilingual-e5-base" # mixedbread-ai/deepset-mxbai-embed-de-large-v1, intfloat/multilingual-e5-base (Lightweight)
-                                                                           # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (Minimal)
+    embedding_model: str = "intfloat/multilingual-e5-base"
     embedding_batch_size: int = 32
     embedding_cache_size: int = 10000
-    reranker_model: str = "BAAI/bge-reranker-v2-m3" # cross-encoder/ms-marco-MiniLM-L-6-v2
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     reranker_batch_size: int = 16
 
     use_docling_parser: bool = True
-
-    # Metadata extraction: Set to False for faster processing (no LLM call)
-    # True = Slow but accurate (~30s per document with LLM)
-    # False = Fast but basic (~0.1s per document, uses only PDF metadata)
     use_llm_metadata_extraction: bool = False
 
     docling_use_vlm: bool = False
-    docling_vlm_backend: str = "transformers"  # "transformers" or "mlx"
-    docling_vlm_model: str = "granite"  # "granite" or "smol"
+    docling_vlm_backend: str = "transformers"
+    docling_vlm_model: str = "granite"
     docling_generate_images: bool = False
     docling_batch_size: int = 1
     docling_timeout: float = 120.0
@@ -63,7 +58,7 @@ class Settings(BaseSettings):
     query_expansion_cache_ttl: int = 3600
 
     zotero_library_id: str = ""
-    zotero_library_type: str = "user"  # user oder group
+    zotero_library_type: str = "user"
     zotero_api_key: str = ""
 
     data_dir: str = "/app/data"
@@ -97,8 +92,8 @@ class Settings(BaseSettings):
 
     def get_vlm_model_spec(self) -> str:
         if self.docling_vlm_backend == "mlx":
-            return "GRANITEDOCLING_MLX"  # Apple Silicon
-        return "GRANITEDOCLING_TRANSFORMERS"  # CPU/CUDA
+            return "GRANITEDOCLING_MLX"
+        return "GRANITEDOCLING_TRANSFORMERS"
 
     def ensure_directories(self) -> None:
         os.makedirs(self.data_dir, exist_ok=True)

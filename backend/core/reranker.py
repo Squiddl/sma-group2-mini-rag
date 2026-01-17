@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any
 
 import numpy as np
-from scipy.special import expit  # Sigmoid function for score normalization
+from scipy.special import expit
 from sentence_transformers import CrossEncoder
 
 from .settings import settings
@@ -89,27 +89,19 @@ class RerankerService:
         logger.info(f"✅ [RERANKER] Model loaded in {load_time:.2f}s")
 
     def warmup(self):
-        """
         Warmup the reranker model with dummy predictions.
 
         CrossEncoders benefit from warmup to initialize the model
         and any JIT compilation before the first real request.
-        """
         logger.info(f"🔥 [RERANKER] Warming up model...")
         import time
         warmup_start = time.time()
-
-        # Warmup with realistic query-document pairs
         warmup_pairs = [
             ("test query", "test document"),
             ("What is machine learning?", "Machine learning is a subset of artificial intelligence."),
             ("How to configure a system?", "Configuration steps: 1. Open settings 2. Adjust parameters 3. Save changes")
         ]
-
-        # Single prediction warmup
         _ = self.model.predict([warmup_pairs[0]])
-
-        # Batch prediction warmup (more realistic)
         _ = self.model.predict(warmup_pairs)
 
         warmup_time = time.time() - warmup_start
@@ -127,10 +119,7 @@ class RerankerService:
 
         pairs = [(query, doc['text']) for doc in documents]
         scores = self.model.predict(pairs)
-
-        # Normalize CrossEncoder logits to [0, 1] using sigmoid function
-        # CrossEncoder returns unbounded logits, not probabilities
-        scores_normalized = expit(scores)  # Sigmoid: 1 / (1 + exp(-x))
+        scores_normalized = expit(scores)
         scores_list = [float(s) for s in scores_normalized]
 
         logger.debug(f"Reranking: Raw score range [{np.min(scores):.2f}, {np.max(scores):.2f}] "

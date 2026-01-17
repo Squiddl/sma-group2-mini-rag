@@ -66,7 +66,6 @@ async def get_messages(chat_id: int, db: Session = Depends(get_db)):
 
 @router.post("/query/stream")
 async def query_documents_stream(request: QueryRequest, db: Session = Depends(get_db)):
-    """RAG query with SSE streaming"""
     logger.info(f"🔍 Query: '{request.query[:100]}...' (chat: {request.chat_id})")
 
     try:
@@ -156,7 +155,6 @@ async def query_documents_stream(request: QueryRequest, db: Session = Depends(ge
                 })
                 return
 
-            # Stream answer
             rag = get_rag_service()
             for token in rag.generate_answer_stream(request.query, contexts, chat_history):
                 if token:

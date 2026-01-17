@@ -118,8 +118,6 @@ def process_document(
                     'is_metadata': False
                 })
                 chunk_counter += 1
-
-    # Log summary
     content_chunks = sum(1 for c in chunks if not c.get('is_metadata'))
     meta_chunks = sum(1 for c in chunks if c.get('is_metadata'))
     avg_chunk_len = sum(len(c['text']) for c in chunks) / len(chunks) if chunks else 0

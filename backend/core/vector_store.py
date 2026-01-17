@@ -133,7 +133,6 @@ class VectorStoreService:
         self._create_payload_indexes(collection_name)
 
     def _create_payload_indexes(self, collection_name: str) -> None:
-        """Create payload indexes for frequently filtered fields."""
         try:
             logger.info(f"Creating payload indexes for {collection_name}")
             self.client.create_payload_index(
@@ -234,8 +233,6 @@ class VectorStoreService:
 
                 chunk_time = time.time() - chunk_start
                 embedding_times.append(chunk_time)
-
-                # Log progress every 10 chunks or for first/last
                 if idx == 0 or (idx + 1) % 10 == 0 or idx == len(chunks) - 1:
                     avg_time = sum(embedding_times) / len(embedding_times)
                     logger.info(f"   → Embedded chunk {idx + 1}/{len(chunks)} ({chunk_time:.3f}s, avg: {avg_time:.3f}s)")
@@ -330,7 +327,6 @@ class VectorStoreService:
             if not self.collection_exists(collection_name):
                 continue
             try:
-                # RRF Fusion mit beiden Vektoren
                 from qdrant_client.models import Fusion
 
                 results = self.client.query_points(
@@ -381,7 +377,7 @@ class VectorStoreService:
             return []
 
         query_embedding = self.embedding_service.embed_text(query)
-        results = self.client.search(  # type: ignore[attr-defined]
+        results = self.client.search(
             collection_name=collection_name,
             query_vector=("dense", query_embedding),
             limit=top_k
@@ -399,7 +395,7 @@ class VectorStoreService:
             return []
 
         sparse_embedding = self.embedding_service.embed_sparse(query)
-        results = self.client.search(  # type: ignore[attr-defined]
+        results = self.client.search(
             collection_name=collection_name,
             query_vector=(
                 "sparse",

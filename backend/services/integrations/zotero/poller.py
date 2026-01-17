@@ -42,7 +42,6 @@ class ZoteroPoller:
         logger.info("Zotero poller stopped")
 
     async def _poll_loop(self):
-        """Haupt-Polling-Loop"""
         while self.running:
             try:
                 await self._check_for_new_documents()
@@ -59,7 +58,6 @@ class ZoteroPoller:
         await loop.run_in_executor(None, self._sync_check_documents)
 
     def _sync_check_documents(self):
-        """Check for new documents and automatically sync them."""
         db = SessionLocal()
         try:
             existing_filenames = {
@@ -94,7 +92,7 @@ class ZoteroPoller:
                         from .sync import ZoteroSyncService
                         sync_service = ZoteroSyncService()
 
-                        result = sync_service.sync_new_documents_only()
+                        result = sync_service.sync_new_documents_only
 
                         synced = result.get('synced', 0)
                         failed = result.get('failed', 0)
@@ -104,7 +102,6 @@ class ZoteroPoller:
 
                         if synced > 0:
                             logger.info(f"📢 {synced} document(s) queued for processing")
-                            # Trigger worker immediately after auto-sync
                             try:
                                 from services.ingest.worker import get_worker
                                 worker = get_worker()
@@ -116,7 +113,6 @@ class ZoteroPoller:
                     except Exception as sync_exc:
                         logger.error(f"❌ Auto-sync failed: {sync_exc}", exc_info=True)
                 else:
-                    # ❌ AUTO-SYNC DISABLED: Only notify, manual sync required
                     logger.info(f"ℹ️  Use /zotero/sync/new to download (auto-sync disabled)")
 
         except Exception as exc:

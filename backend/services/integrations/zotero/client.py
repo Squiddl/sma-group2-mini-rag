@@ -96,14 +96,11 @@ class ZoteroService:
             data = item.get('data', {})
             filename = data.get('filename') or data.get('title', f"{item_key}.pdf")
 
-            # Ensure .pdf extension
             if not filename.lower().endswith('.pdf'):
                 filename += '.pdf'
 
-            # Download file content
             file_content = self.client.file(item_key)
 
-            # Save to disk
             os.makedirs(output_dir, exist_ok=True)
             file_path = os.path.join(output_dir, filename)
 

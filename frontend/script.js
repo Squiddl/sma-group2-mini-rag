@@ -394,9 +394,8 @@ function renderDocuments() {
         const isActivelyProcessing = doc.is_actively_processing || false;
         const isQueued = !isProcessed && !isActivelyProcessing && documentPollers.has(doc.id);
 
-        let statusContent = '';
+        let statusContent;
         if (isActivelyProcessing) {
-            // Currently being processed by worker
             statusContent = `
                 <div class="document-status processing">
                     <span class="status-spinner"></span>
@@ -404,7 +403,6 @@ function renderDocuments() {
                 </div>
             `;
         } else if (isQueued) {
-            // In queue, waiting for worker
             statusContent = `
                 <div class="document-status queued">
                     <span class="status-icon">⏳</span>
@@ -475,7 +473,7 @@ function updateProcessingIndicator() {
     const count = processingDocs.length;
 
     if (count > 0) {
-        processingCount.textContent = count;
+        processingCount.textContent = ""+count;
         processingIndicator.style.display = 'flex';
     } else {
         processingIndicator.style.display = 'none';
@@ -486,7 +484,7 @@ function updateProcessingIndicator() {
  async function reprocessDocument(docId) {
       try {
           await apiCall(`/documents/${docId}/reprocess`, 'POST');
-          startPollingDocument(docId);
+          await startPollingDocument(docId);
           await loadDocuments();
           showToast('Document reprocessing started', 'success');
       } catch (error) {
@@ -611,7 +609,7 @@ function createUploadProgress(filename) {
     uploadProgressElement.innerHTML = `
         <div class="upload-filename">${escapeHtml(filename)}</div>
         <div class="upload-progress-bar">
-            <div class="upload-progress-fill" style="width: 0%"></div>
+            <div class="upload-progress-fill" style="width: 0"></div>
         </div>
         <div class="upload-status">Preparing upload...</div>
     `;
@@ -674,14 +672,13 @@ async function startPollingDocument(docId) {
             eventSource.close();
             documentPollers.delete(docId);
 
-            // Reload documents after completion
             setTimeout(() => {
                 loadDocuments(true);
                 showToast(`Document processed: ${status.num_chunks} chunks created`, 'success');
             }, 1000);
         });
 
-        eventSource.addEventListener('timeout', (event) => {
+        eventSource.addEventListener('timeout', () => {
             console.warn('Processing timeout for document', docId);
             eventSource.close();
             documentPollers.delete(docId);
@@ -693,7 +690,6 @@ async function startPollingDocument(docId) {
             eventSource.close();
             documentPollers.delete(docId);
 
-            // Fallback to regular polling on SSE error
             startLegacyPolling(docId);
         });
 
@@ -702,7 +698,7 @@ async function startPollingDocument(docId) {
 
     } catch (error) {
         console.error('Failed to start SSE, falling back to polling:', error);
-        startLegacyPolling(docId);
+        await startLegacyPolling(docId);
     }
 }
 
@@ -741,11 +737,9 @@ function updateDocumentProgress(docId, status) {
     `;
 }
 
-// Legacy polling fallback for older browsers or SSE failures
 async function startLegacyPolling(docId) {
-    if (documentPollers.has(docId)) {
+    if (documentPollers.has(docId))
         return;
-    }
 
     let attempts = 0;
 
@@ -762,11 +756,9 @@ async function startLegacyPolling(docId) {
         try {
             const doc = await apiCall(`/documents/${docId}`);
 
-            // Update document in array even if still processing (for potential metadata changes)
             const index = documents.findIndex(d => d.id === docId);
-            if (index !== -1) {
+            if (index !== -1)
                 documents[index] = doc;
-            }
 
             if (doc.processed) {
                 stopPollingDocument(docId);
@@ -791,23 +783,17 @@ async function startLegacyPolling(docId) {
 
     documentPollers.set(docId, pollerId);
 
-    // Trigger immediate UI update to show processing spinner
     renderDocuments();
 }
 
 function stopPollingDocument(docId) {
     const poller = documentPollers.get(docId);
-    if (poller) {
-        // Handle both EventSource (SSE) and interval-based polling
-        if (poller.close && typeof poller.close === 'function') {
-            // EventSource
+    if (poller)
+        if (poller.close && typeof poller.close === 'function')
             poller.close();
-        } else {
-            // Legacy polling interval
+        else
             clearInterval(poller);
-        }
         documentPollers.delete(docId);
-    }
 }
 
 function showLoading(text = 'Loading...') {

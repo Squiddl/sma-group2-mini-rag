@@ -7,7 +7,7 @@ from core.llm import create_llm
 
 logger = logging.getLogger(__name__)
 
-METADATA_EXTRACTION_PROMPT = """You are a precise document metadata extractor. Your task is to extract bibliographic information from academic papers and documents.
+METADATA_EXTRACTION_PROMPT =   """You are a precise document metadata extractor. Your task is to extract bibliographic information from academic papers and documents.
 
 EXTRACTION RULES:
 1. Extract ONLY information that is EXPLICITLY stated in the text
@@ -146,13 +146,6 @@ def create_metadata_chunk(metadata: Dict[str, str], document_name: str) -> str:
 
 class MetadataExtractor:
     def __init__(self, use_llm: bool = True):
-        """
-        Initialize metadata extractor.
-
-        Args:
-            use_llm: If False, skip LLM-based extraction and use only PDF metadata.
-                    This speeds up processing significantly (~28s -> <1s).
-        """
         self.use_llm = use_llm
         self.llm = create_llm(temperature=0.0, max_tokens=1024) if use_llm else None
 
@@ -167,7 +160,6 @@ class MetadataExtractor:
             filename: str,
             pdf_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
-        # Fast path: Use PDF metadata only if LLM is disabled
         if not self.use_llm:
             logger.info(f"⚡ [METADATA] Fast extraction (PDF metadata only)")
             return _create_fallback_metadata(filename, pdf_metadata)

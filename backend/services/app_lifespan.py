@@ -98,7 +98,6 @@ async def lifespan(app: FastAPI):
     embedding_service = EmbeddingService.get_instance()
     logger.info(f"   ✅ Embedding service ready (model: {settings.embedding_model})")
 
-    # Warmup the embedding model to ensure it's fully loaded
     embedding_service.warmup()
     logger.info(f"   ✅ Embedding model warmed up and ready for use")
 
@@ -108,7 +107,6 @@ async def lifespan(app: FastAPI):
     reranker_service = RerankerService.get_instance()
     logger.info(f"   ✅ Reranker service ready (model: {settings.reranker_model})")
 
-    # Warmup the reranker model to ensure it's fully loaded
     reranker_service.warmup()
     logger.info(f"   ✅ Reranker model warmed up and ready for use")
 

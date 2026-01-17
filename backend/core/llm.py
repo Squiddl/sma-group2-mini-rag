@@ -54,7 +54,7 @@ def create_llm(streaming: bool = False, max_tokens: int = None, temperature: flo
             )
             logger.info(f"✅ ChatOpenAI instance created successfully")
 
-        else:  # ollama
+        else:
             logger.info(f"   • Base URL: {settings.ollama_base_url}")
             logger.info(
                 f"   • Target: http://{settings.ollama_base_url.replace('http://', '').replace('https://', '')}/api/chat")

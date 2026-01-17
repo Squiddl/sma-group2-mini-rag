@@ -30,7 +30,6 @@ class TextExtractionError(FileProcessingError):
 
 
 class DoclingVLMConverter:
-    """Docling Converter mit VLM oder Standard Pipeline"""
     _instance: Optional["DoclingVLMConverter"] = None
     _converter = None
     _disabled = False
@@ -113,7 +112,6 @@ class DoclingVLMConverter:
             self._converter = None
 
     def convert(self, file_path: str) -> Optional[str]:
-        """Konvertiert PDF zu Markdown mit Fortschritts-Logging"""
         if self._converter is None:
             return None
 
@@ -265,7 +263,6 @@ class PDFExtractor:
 
     @staticmethod
     def extract_metadata(file_path: str) -> Dict[str, Any]:
-        """Extrahiert PDF-Metadaten mit Logging"""
         try:
             logger.info(f"📋 [METADATA] Extracting PDF metadata...")
             reader = PdfReader(file_path)
@@ -295,7 +292,6 @@ class PDFExtractor:
             num_pages: int = 2,
             max_chars: int = 3000
     ) -> str:
-        """Extrahiert erste N Seiten für Metadata-Extraktion"""
         logger.info(f"📄 [FIRST PAGES] Extracting first {num_pages} pages (max {max_chars} chars)...")
 
         # Versuche Docling für bessere Qualität

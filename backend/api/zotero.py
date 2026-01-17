@@ -17,7 +17,6 @@ def init_zotero_router():
 
 @router.post("/sync")
 async def trigger_sync() -> Dict:
-    """Synchronously sync all Zotero documents and trigger worker"""
     if not zotero_sync_service:
         init_zotero_router()
 
@@ -29,8 +28,6 @@ async def trigger_sync() -> Dict:
 
     logger.info("🔄 Starting synchronous Zotero sync (all documents)...")
     result = zotero_sync_service.sync_all_documents()
-
-    # Trigger worker immediately after sync
     if result.get('synced', 0) > 0:
         try:
             from services.ingest.worker import get_worker
@@ -49,7 +46,6 @@ async def trigger_sync() -> Dict:
 
 @router.post("/sync/new")
 async def sync_new_only() -> Dict:
-    """Synchronously sync only new Zotero documents and trigger worker"""
     if not zotero_sync_service:
         init_zotero_router()
 
