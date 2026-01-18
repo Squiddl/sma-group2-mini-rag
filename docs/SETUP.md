@@ -6,9 +6,8 @@ Komplette Anleitung zur Installation und Konfiguration des RAG-Systems.
 
 ## Systemanforderungen
 
-- **Docker** 20.10+ mit Docker Compose
+- **Docker** mit Docker Compose
 - **Mindestens 8 GB RAM** (12 GB empfohlen für lokale LLMs)
-- **10 GB freier Speicherplatz**
 - **Windows**: WSL 2 (empfohlen für beste Performance)
 - Optional: NVIDIA GPU mit CUDA-Support für schnellere Inferenz
 
@@ -19,7 +18,18 @@ Komplette Anleitung zur Installation und Konfiguration des RAG-Systems.
 wsl --status
 ```
 
-**Empfehlung:** WSL 2 mit Debian/Ubuntu für optimale Docker- und GPU-Performance
+**🎯 Entscheidungs-Guide für Windows:**
+
+| Nutzungsszenario | Empfehlung |
+|------------------|------------|
+| Development, Testing | ✅ **Docker Desktop** |
+| GPU mit Ollama (lokal) | ✅ **Docker Desktop** (GPU-Support seit 2023 integriert) |
+| Headless Server, CI/CD | 🔧 WSL-Native Docker |
+| Maximale Performance | 🔧 WSL-Native + systemd |
+
+**Für 95% der User:** Docker Desktop ist die beste Wahl.
+
+**Wichtig:** Docker Desktop nutzt bereits WSL 2 als Backend - Sie bekommen WSL-Performance automatisch!
 
 ---
 
@@ -127,88 +137,32 @@ docker exec -it ollama ollama list
 
 ### Speicherprobleme
 
-Siehe Abschnitt [Performance-Optimierung (Windows)](#performance-optimierung-windows) unten.
+**Windows:** Docker Desktop nutzt WSL 2 - Memory wird automatisch von Windows verwaltet.  
+**macOS:** Memory-Limit direkt in Docker Desktop App erhöhen (Settings → Resources → Memory: 12GB+).  
+**Linux:** Docker nutzt automatisch verfügbaren Host-RAM.
 
----
-
-## Performance-Optimierung (Windows)
-
-### Docker Desktop Memory erhöhen
-
-**Option 1: Docker Desktop Settings (einfach)**
-```
-Docker Desktop → Settings → Resources → Memory: 12GB+
-```
-
-**Option 2: WSL Memory-Limit erhöhen (empfohlen für mehr Kontrolle)**
-
-1. **WSL-Version prüfen:**
-```powershell
-wsl --status
-```
-
-2. **Globale WSL-Konfiguration erstellen:**
-```powershell
-notepad $env:USERPROFILE\.wslconfig
-```
-
-3. **Konfiguration hinzufügen:**
-```ini
-[wsl2]
-memory=12GB          # Maximal verfügbarer RAM für WSL
-processors=6         # CPU-Kerne für WSL
-swap=4GB             # Swap-Speicher
-localhostForwarding=true
-```
-
-4. **WSL neu starten:**
-```powershell
-wsl --shutdown
-```
-
-5. **Überprüfung:**
-```bash
-# In WSL
-free -h
-nproc
-```
-
-**Dokumentation:** [Microsoft WSL Config Guide](https://learn.microsoft.com/en-us/windows/wsl/wsl-config#configure-global-options-with-wslconfig)
+➡️ **Detaillierte Anleitungen:** Siehe [PERFORMANCE.md](./PERFORMANCE.md)
 
 ---
 
 ## GPU-Support (NVIDIA)
 
-### WSL 2 vs. Docker Desktop für GPU
+### Docker Desktop GPU-Support (Windows/macOS)
 
-| Aspekt | WSL 2 (Debian/Ubuntu) | Docker Desktop |
-|--------|----------------------|----------------|
-| **GPU-Support** | ✅ Native CUDA | ✅ Via WSL Backend |
-| **Performance** | ⚡⚡⚡ Optimal | ⚡⚡ Gut |
-| **Setup-Komplexität** | Medium | Einfach |
-| **Empfohlen für** | Production, GPU-intensive Workloads | Development, Quick Start |
+**Für Windows/macOS ist Docker Desktop empfohlen:**
 
-### GPU-Setup (NVIDIA + WSL 2)
+**1. NVIDIA Driver installieren:**
+- **Windows:** [NVIDIA Driver Download](https://www.nvidia.com/Download/index.aspx) (Min. 470.76+)
+- **macOS:** Keine NVIDIA GPU-Unterstützung (Metal für Apple Silicon)
 
-**1. NVIDIA Driver installieren (Windows-Host):**
-- [NVIDIA Driver Download](https://www.nvidia.com/Download/index.aspx)
-- Mindestens Version 470.76+
-
-**2. CUDA in WSL prüfen:**
-```bash
-nvidia-smi
+**2. GPU in Docker Desktop aktivieren:**
+```
+Docker Desktop → Settings → Resources → Enable GPU
 ```
 
-**3. Docker mit GPU-Support:**
+**3. GPU testen:**
 ```bash
-# NVIDIA Container Toolkit (in WSL)
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-
-sudo apt-get update
-sudo apt-get install -y nvidia-container-toolkit
-sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
 ```
 
 **4. GPU in docker-compose.yml aktivieren:**
@@ -225,21 +179,19 @@ services:
               capabilities: [gpu]
 ```
 
-**5. Testen:**
-```bash
-docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
-```
+➡️ **Erweiterte GPU-Optimierung:** Siehe [PERFORMANCE.md](./PERFORMANCE.md)
 
-### WSL-Distribution wählen
+---
 
-**Debian vs. Ubuntu für Container + GPU:**
+## WSL-Distribution wählen (Windows)
 
-| Distribution | Vorteile | Nachteile |
-|--------------|----------|-----------|
-| **Debian** | Stabil, minimal, weniger Overhead | Ältere Pakete |
-| **Ubuntu** | Aktuellere Pakete, bessere NVIDIA-Support | Mehr Bloat |
+**Für Docker Desktop:** Ubuntu 22.04 LTS empfohlen
 
-**Empfehlung:** Ubuntu 22.04 LTS für beste NVIDIA/CUDA-Kompatibilität
+| Distribution | Empfehlung | Begründung |
+|--------------|------------|------------|
+| **Ubuntu 22.04 LTS** | ⭐⭐⭐⭐⭐ | Best Practice, LTS bis 2027 |
+| **Ubuntu 24.04 LTS** | ⭐⭐⭐⭐ | Neueste Packages, LTS bis 2029 |
+| **Debian 12** | ⭐⭐⭐ | Minimal, stabil |
 
 **Installation:**
 ```powershell
@@ -247,14 +199,9 @@ wsl --install Ubuntu-22.04
 wsl --set-default Ubuntu-22.04
 ```
 
----
 
 ## Deinstallation
 
 ```bash
-# Services stoppen und Volumes löschen
-docker-compose down -v
-
-# Images entfernen
-docker-compose down --rmi all
+docker-compose down -v && docker-compose down --rmi all
 ```

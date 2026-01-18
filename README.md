@@ -40,6 +40,7 @@
 Die vollständige technische Dokumentation finden Sie hier:
 
 - **[Setup & Installation →](./docs/SETUP.md)** - Docker-Compose, Konfiguration, Quick Start
+- **[Performance-Optimierung →](./docs/PERFORMANCE.md)** - Memory-Limits, GPU-Setup, Benchmarks (Windows/macOS/Linux)
 - **[Architektur →](./docs/ARCHITECTURE.md)** - System-Design, Komponenten, RAG-Pipeline
 - **[API-Referenz →](./docs/API.md)** - REST-Endpoints, Schemas, Beispiele
 - **[Technologie-Stack →](./docs/TECHNOLOGIES.md)** - FastAPI, Qdrant, Docling, LLM-Modelle
