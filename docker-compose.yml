@@ -36,11 +36,7 @@ services:
         /bin/ollama serve &
         sleep 5 &&
         if ! ollama list | grep -q '${LLM_MODEL:-phi3:mini}'; then
-          echo 'Downloading model ${LLM_MODEL:-phi3:mini}...' &&
           ollama pull ${LLM_MODEL:-phi3:mini} &&
-          echo 'Model downloaded successfully'
-        else
-          echo 'Model ${LLM_MODEL:-phi3:mini} already available'
         fi &&
         wait
       "
@@ -57,8 +53,7 @@ services:
       dockerfile: Dockerfile
       args:
         EMBEDDING_MODEL: ${EMBEDDING_MODEL:-mixedbread-ai/deepset-mxbai-embed-de-large-v1}
-        RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
-    image: rag-backend:latest
+        RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
     container_name: rag-backend
     ports:
       - "8000:8000"
@@ -68,8 +63,6 @@ services:
     env_file:
       - .env
     environment:
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-mixedbread-ai/deepset-mxbai-embed-de-large-v1}
-      - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
