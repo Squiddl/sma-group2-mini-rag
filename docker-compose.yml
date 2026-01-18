@@ -33,11 +33,11 @@ services:
           memory: 6GB
     entrypoint: >
       sh -c "
-        /bin/ollama serve &
-        sleep 5 &&
-        if ! ollama list | grep -q '${LLM_MODEL:-phi3:mini}'; then
-          ollama pull ${LLM_MODEL:-phi3:mini} &&
-        fi &&
+        /bin/ollama serve & 
+        sleep 5 && 
+        if ! ollama list | grep -q '${LLM_MODEL:-phi3:mini}'; then 
+          ollama pull ${LLM_MODEL:-phi3:mini}; 
+        fi; 
         wait
       "
     healthcheck:
