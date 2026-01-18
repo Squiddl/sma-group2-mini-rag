@@ -66,7 +66,7 @@ services:
       - ./backend/data:/app/data
       - model-cache:/app/.cache
     env_file:
-      - .env  # Lädt .env automatisch
+      - .env
     environment:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-mixedbread-ai/deepset-mxbai-embed-de-large-v1}
       - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
