@@ -9,7 +9,7 @@ Komplette Anleitung zur Installation und Konfiguration des RAG-Systems.
 ## Quick Start
 **1. Repository klonen:**
 ```bash
-git clone https://github.com/DuncanSARapp/sma-rag-python.git && cd sma-rag-python
+git clone https://github.com/Squiddl/sma-group2-mini-rag.git && cd sma-group2-mini-rag
 ```
 
 **2. Services starten:**
