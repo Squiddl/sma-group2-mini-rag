@@ -1,6 +1,5 @@
 # RAG Chat System
-
-Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunking, local embeddings, Zotero integration, and API-based LLM integration.
+Docker-based RAG (Retrieval-Augmented Generation) system
 
 ## Features
 
@@ -11,6 +10,16 @@ Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunk
 - RAG-based question answering with reranking
 - Parent-child chunking strategy
 - Web-based interface
+
+---
+
+## Setup (Unix/Windows)
+
+```bash
+git clone https://github.com/DuncanSARapp/SMA-Abgabe.git && cd SMA-Abgabe
+docker-compose up -d --build && docker-compose logs -f
+```
+
 
 ## Architecture
 
@@ -42,134 +51,148 @@ Docker-based RAG (Retrieval-Augmented Generation) system with parent-child chunk
  └──────────┘    └──────────┘    └──────────┘
 ```
 
-## RAG System Workflow
 
-### Phase 1: Indexierung (Dokument-Upload)
+| Endpoint | URL                        |
+|----------|----------------------------|
+| Frontend | http://localhost:3000      |
+| API Docs | http://localhost:8000/docs |
 
-```
-📄 PDF Upload / Zotero Sync
-    ↓
-🔄 Docling Converter
-    • PDF → Strukturiertes Markdown
-    • Fallback: PyPDF (bei libGL-Fehler)
-    ↓
-📋 Metadata Extraction
-    • Titel, Autor, Seitenzahl
-    • Optional: LLM-basierte Analyse
-    ↓
-✂️ Document Chunking (Parent-Child)
-    • Parent: 2000 Tokens (Kontext)
-    • Child: 400 Tokens (Retrieval)
-    • Overlap: Konsistenz
-    ↓
-🔢 Embedding Generation
-    • Batch-Processing (32 Chunks/Batch)
-    • Model: mxbai-embed-large-v1
-    • Output: 1024-dim Vektoren
-    ↓
-💾 Qdrant Vector Storage
-    • Collection: doc_X
-    • Scalar Quantization (Kompression)
-    • Hybrid Search (Dense + Metadata)
-```
 
-### Phase 2: Retrieval (User-Query)
+## Configuration
 
-```
-❓ User Query
-    ↓
-🔢 Query Embedding
-    • Gleicher Encoder wie Dokumente
-    ↓
-🔍 Vector Search (Qdrant)
-    • Top-K: 20 Kandidaten
-    • Cosine Similarity
-    ↓
-🎯 Reranking
-    • Model: bge-reranker-v2-m3
-    • Präzise Query-Chunk-Bewertung
-    • Top-K: 6 beste Chunks
-    ↓
-📚 Context Assembly
-    • Parent-Chunks laden (mehr Kontext)
-    • Optional: Neighbor Expansion (±4 Chunks)
-    ↓
-🤖 LLM Generation
-    • Provider: Claude/OpenAI/Ollama
-    • Prompt: Query + Context
-    • Stream Response
-    ↓
-✅ Antwort an User
-```
-
-## Prerequisites
-
-- Docker and Docker Compose
-- LLM API key (OpenAI, Anthropic, or Ollama)
-- Optional: Zotero account with API key
-
-## Setup
-
-### 1. Clone Repository
 
 ```bash
-git clone https://github.com/DuncanSARapp/SMA-Abgabe.git
-cd SMA-Abgabe
+# .env
+# ============================================================================
+# MINIMAL SETUP (works out of the box)
+# ============================================================================
+LLM_PROVIDER=ollama
+LLM_MODEL=phi3:mini
+
+# ============================================================================
+# CLOUD PROVIDERS (better quality) - Uncomment to use
+# ============================================================================
+# LLM_PROVIDER=anthropic
+# ANTHROPIC_API_KEY=sk-ant-...
+# 
+# LLM_PROVIDER=openai
+# OPENAI_API_KEY=sk-...
+
+# ============================================================================
+# ZOTERO SYNC (optional) - Uncomment to enable
+# ============================================================================
+# ZOTERO_LIBRARY_ID=12345678
+# ZOTERO_API_KEY=your-api-key
+# ZOTERO_LIBRARY_TYPE=user
 ```
 
-### 2. Configure Environment
+→ See [`env.example`](./.env.example) for advanced settings (chunking, search parameters, model configurations)
 
-```bash
-cp .env.example .env
+---
+
+## Chat Interface
+
+![Chat Interface](docs/chat-interface.png)
+*Chat interface with document-based Q&A, source references, and relevance scores*
+
+---
+
+## RAG Pipeline
+
+The system processes documents through a 4-stage pipeline:
+
+```
+┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐
+│                  │      │                  │      │                  │      │                  │
+│     INGEST       │      │      EMBED       │      │     SEARCH       │      │    GENERATE      │
+│                  │      │                  │      │                  │      │                  │
+│    Document      │─────▶│    Sentence      │─────▶│     Vector       │─────▶│       LLM        │
+│     Parsing      │      │   Embeddings     │      │   Similarity     │      │     Response     │
+│                  │      │                  │      │                  │      │                  │
+│  • Docling       │      │  • mxbai-de      │      │  • Qdrant        │      │  • Ollama        │
+│  • Chunking      │      │  • 1024-dim      │      │  • Cosine        │      │  • Anthropic     │
+│  • Metadata      │      │  • German        │      │  • Rerank        │      │  • Streaming     │
+│                  │      │                  │      │                  │      │                  │
+└──────────────────┘      └──────────────────┘      └──────────────────┘      └──────────────────┘
+      90s                       28s                       <1s                      2-10s
+
+Upload → Docling → Chunking → Embedding → Storage → Query
 ```
 
-**Minimal Configuration (.env):**
+---
 
-```env
-# LLM Provider (required)
-ANTHROPIC_API_KEY=sk-ant-...
-# oder
-OPENAI_API_KEY=sk-...
+## Project Structure
 
-# Zotero (optional)
-ZOTERO_LIBRARY_ID=your-library-id
-ZOTERO_API_KEY=your-zotero-key
-ZOTERO_LIBRARY_TYPE=user  # oder "group"
+```
+SMA-Abgabe/
+├── docker-compose.yml
+├── .env.example
+│
+├── backend/                    # FastAPI Application
+│   ├── main.py
+│   ├── api/                    # REST Endpoints
+│   ├── core/                   # Core Components
+│   ├── services/               # Business Logic
+│   └── persistence/            # Database
+│
+├── frontend/                   # Web Interface
+└── docs/
 ```
 
-**Erweiterte Konfiguration (optional):**
+---
 
-```env
-# Metadata Extraction Speed (see METADATA-EXTRACTION-SPEED.md)
-USE_LLM_METADATA_EXTRACTION=false  # false=fast (~0.1s), true=slow (~30s)
+## API
 
-# Models (defaults in settings.py)
-EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1
-RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+Interactive documentation available at **http://localhost:8000/docs** after startup.
 
-# LLM Settings
-LLM_PROVIDER=anthropic  # anthropic, openai, ollama
-LLM_MODEL=claude-sonnet-4-20250514  # Bei Ollama: llama2 benötigt 10GB Docker Desktop Memory, alternativ phi3:mini nutzen
-LLM_TEMPERATURE=0.0
+**Key Endpoints:**
 
-# Retrieval
-TOP_K_RETRIEVAL=20
-TOP_K_RERANK=6
-```
+| Endpoint                            | Method | Description             |
+|-------------------------------------|--------|-------------------------|
+| `/documents`                        | POST   | Upload document         |
+| `/documents/{id}/processing-stream` | GET    | Processing status (SSE) |
+| `/chats`                            | POST   | Create chat             |
+| `/query/stream`                     | POST   | RAG query (SSE)         |
+| `/zotero/sync`                      | POST   | Trigger sync            |
+| `/health`                           | GET    | System status           |
 
-**Hinweis:** Alle Parameter mit Defaults in `backend/config/settings.py` müssen nicht in `.env` gesetzt werden.
+---
 
-**Zotero Auto-Sync**: Das System pollt automatisch Zotero alle 15 Sekunden. Neue Dokumente erscheinen sofort in der UI und werden asynchron im Hintergrund verarbeitet. Ohne Zotero-Credentials bleiben die Services inaktiv.
+## Models
 
-### 3. Run Setup Script
+| Component         | Model                     | Purpose          | Requirements           |
+|-------------------|---------------------------|------------------|------------------------|
+| **LLM (Default)** | `phi3:mini`               | Fast, German     | 4GB RAM                |
+| **LLM (Quality)** | `llama2`                  | Better quality   | 12GB RAM, GPU optional |
+| **LLM (Cloud)**   | `claude-sonnet-4`         | Anthropic API    | API key only           |
+| **Embedding**     | `mxbai-embed-de-large-v1` | 1024-dim vectors | 2GB RAM                |
+| **Reranker**      | `bge-reranker-v2-m3`      | Cross-encoder    | 1GB RAM                |
 
-```bash
-./setup.sh
-```
+---
 
-The `setup.sh` script validates prerequisites, creates a virtual environment, installs dependencies, validates Docker configuration, and starts all services.
+## Technologies
 
-### 4. Access Application
+| Technology       | Purpose             | Description                                                             | References                                                                                                                                                     |
+|------------------|---------------------|-------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **FastAPI**      | REST API Backend    | Python web framework with automatic OpenAPI docs, async support         | [Docs](https://fastapi.tiangolo.com/) • [GitHub](https://github.com/tiangolo/fastapi)                                                                          |
+| **Ollama**       | Local LLM Runtime   | Self-hosted LLM platform, GPU acceleration, model management            | [Home](https://ollama.com/) • [Docs](https://docs.ollama.com/) • [API](https://docs.ollama.com/api)                                                            |
+| **Qdrant**       | Vector Database     | High-performance vector search, 1024-dim embeddings, metadata filtering | [Home](https://qdrant.tech/) • [Docs](https://qdrant.tech/documentation/) • [API](https://api.qdrant.tech/api-reference)                                       |
+| **Docling**      | Document Processing | PDF extraction with structure preservation, tables, metadata            | [GitHub](https://github.com/docling-project) • [Server](https://github.com/docling-project/docling-serve) • [Docs](https://docling-project.github.io/docling/) |
+| **mxbai-embed**  | German Embeddings   | German-optimized 1024-dim vectors for semantic similarity               | [Model](https://huggingface.co/mixedbread-ai/deepset-mxbai-embed-de-large-v1)                                                                                  |
+| **BGE Reranker** | Result Scoring      | Cross-encoder for query-document relevance scoring                      | [Model](https://huggingface.co/BAAI/bge-reranker-v2-m3)                                                                                                        |
+| **PostgreSQL**   | Metadata Storage    | Relational DB for chat history, document metadata, audit logs           | [Docs](https://www.postgresql.org/docs/)                                                                                                                       |
+| **Zotero**       | Reference Manager   | Academic reference management with Web API integration                  | [Home](https://www.zotero.org/) • [Support](https://www.zotero.org/support/) • [API](https://www.zotero.org/support/dev/web_api/v3/start)                      |
 
-- **Frontend:** http://localhost:80
-- **API Docs:** http://localhost:8000/docs
+**Alternative Models:**
+- **Nomic Embed**: [Ollama](https://ollama.com/library/nomic-embed-text) • [Blog](https://www.nomic.ai/blog/posts/nomic-embed-text-v1)
+
+---
+
+## Based on n8n AI Starter Kit
+
+This RAG system is inspired by and builds upon the excellent **n8n AI Starter Kit**, which provides a comprehensive foundation for AI workflows with Docker orchestration.
+
+**Recommended Resources:**
+- 📦 [Self-hosted AI Starter Kit](https://github.com/n8n-io/self-hosted-ai-starter-kit) - Complete Docker setup with Ollama, Qdrant, PostgreSQL
+- 📚 [AI Starter Kit Documentation](https://docs.n8n.io/hosting/starter-kits/ai-starter-kit/) - Setup guides and best practices  
+- 🔧 [n8n Workflow Automation](https://docs.n8n.io/) - Low-code automation platform

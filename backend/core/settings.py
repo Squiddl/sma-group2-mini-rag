@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     qdrant_prefer_grpc: bool = True
     qdrant_collection_prefix: str = "doc_"
 
-    llm_provider: str = ""
+    llm_provider: str = "ollama"  # Options: "anthropic", "openai", "ollama"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     ollama_base_url: str = "http://ollama:11434"
-    llm_model: str = "claude-sonnet-4-20250514"
+    llm_model: str = "llama2"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 4096
     llm_timeout: float = 30.0
