@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     use_markdown_tables: bool = True
 
     ocr_engine: str = "rapidocr"
-    use_gpu_for_ocr: bool = False
+    use_gpu_for_ocr: bool = True
 
     chunk_size: int = 1000
     chunk_overlap: int = 180

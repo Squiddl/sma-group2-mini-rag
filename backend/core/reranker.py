@@ -89,10 +89,6 @@ class RerankerService:
         logger.info(f"✅ [RERANKER] Model loaded in {load_time:.2f}s")
 
     def warmup(self):
-        Warmup the reranker model with dummy predictions.
-
-        CrossEncoders benefit from warmup to initialize the model
-        and any JIT compilation before the first real request.
         logger.info(f"🔥 [RERANKER] Warming up model...")
         import time
         warmup_start = time.time()

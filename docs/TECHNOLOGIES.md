@@ -1,5 +1,18 @@
 # Technologie-Stack
+---
 
+| Komponente              | Technologie              | Zweck                        |
+|-------------------------|--------------------------|------------------------------|
+| **Backend**             | FastAPI + Python 3.11    | REST API, async processing   |
+| **Vector DB**           | Qdrant                   | Semantische Suche (1024-dim) |
+| **Embeddings**          | mxbai-embed-de-large-v1  | Deutsche Textvektorisierung  |
+| **LLM**                 | Ollama / Claude / OpenAI | Text-Generierung             |
+| **Document Processing** | Docling                  | PDF-Extraktion mit Struktur  |
+| **Reranker**            | BGE-reranker-v2-m3       | Relevanz-Scoring             |
+| **Database**            | PostgreSQL               | Chat-History, Metadata       |
+
+
+---
 Detaillierte Übersicht der verwendeten Technologien und Modelle.
 
 ---
@@ -50,10 +63,6 @@ Detaillierte Übersicht der verwendeten Technologien und Modelle.
 
 **Zweck:** High-Quality Cloud LLM
 
-**Modelle:**
-- `claude-sonnet-4` - Empfohlen
-- `claude-opus-4` - Höchste Qualität
-
 **Vorteile:**
 - Bessere Antwortqualität
 - Kein lokales RAM benötigt
@@ -64,10 +73,7 @@ Detaillierte Übersicht der verwendeten Technologien und Modelle.
 
 ### OpenAI (Optional)
 
-**Zweck:** Alternative Cloud LLM
-
 **Modelle:**
-- `gpt-4o`
 - `gpt-4-turbo`
 - `gpt-3.5-turbo`
 
@@ -260,68 +266,3 @@ distance: Cosine
 
 ---
 
-## Deployment
-
-### Docker & Docker Compose
-
-**Services:**
-```yaml
-- frontend (nginx)
-- backend (fastapi)
-- qdrant (vector-db)
-- ollama (llm)
-- postgres (metadata)
-```
-
-**Volumes:**
-- `qdrant_data`: Vector Storage
-- `ollama_models`: LLM Models
-- `postgres_data`: Database
-- `uploads`: Dokumente
-
-**Networks:**
-- `app-network`: Internal Communication
-
----
-
-## Model Comparison
-
-### LLM Models
-
-| Modell | RAM | GPU | Speed | Quality | Cost |
-|--------|-----|-----|-------|---------|------|
-| phi3:mini | 4GB | Optional | ⚡⚡⚡ | ⭐⭐ | Free |
-| llama2 | 12GB | Empfohlen | ⚡⚡ | ⭐⭐⭐ | Free |
-| mistral | 12GB | Empfohlen | ⚡⚡ | ⭐⭐⭐⭐ | Free |
-| claude-sonnet-4 | 0GB | N/A | ⚡⚡⚡ | ⭐⭐⭐⭐⭐ | $3/Mtok |
-| gpt-4o | 0GB | N/A | ⚡⚡⚡ | ⭐⭐⭐⭐⭐ | $2.5/Mtok |
-
-### Embedding Models
-
-| Modell | Dim | Context | Sprache | Performance |
-|--------|-----|---------|---------|-------------|
-| mxbai-de | 1024 | 512 | DE (optimiert) | ⭐⭐⭐⭐ |
-| nomic-embed | 768 | 8192 | Multilingual | ⭐⭐⭐ |
-| bge-m3 | 1024 | 8192 | Multilingual | ⭐⭐⭐⭐ |
-
----
-
-## Performance-Benchmarks
-
-**Document Processing:**
-- PDF Upload: ~5s (10MB)
-- Docling Parse: ~60-90s
-- Chunking: ~2s
-- Embedding: ~20-30s (100 chunks)
-- Total: ~90-120s
-
-**Query Processing:**
-- Vector Search: <100ms
-- Reranking: ~200ms
-- LLM Generation: 2-10s (streaming)
-- Total: ~3-11s
-
-**System Requirements:**
-- Minimal: 8GB RAM, 10GB Storage
-- Empfohlen: 16GB RAM, 20GB Storage, GPU
-- Production: 32GB RAM, 50GB Storage, GPU

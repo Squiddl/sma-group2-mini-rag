@@ -53,7 +53,6 @@ Das System verarbeitet Dokumente in 4 Phasen:
 │  • Metadata      │      │  • German        │      │  • Rerank        │      │  • Streaming     │
 │                  │      │                  │      │                  │      │                  │
 └──────────────────┘      └──────────────────┘      └──────────────────┘      └──────────────────┘
-      ~90s                      ~28s                      <1s                      2-10s
 ```
 
 ### Phase 1: Ingest (Dokumenten-Aufnahme)
@@ -97,7 +96,7 @@ Das System verarbeitet Dokumente in 4 Phasen:
 ## Projektstruktur
 
 ```
-academic-rag-python/
+sma-rag-python/
 ├── docker-compose.yml          # Orchestrierung
 ├── .env.example                # Konfiguration
 │
@@ -179,23 +178,3 @@ User → Frontend → POST /query/stream
                     ↓
                   User
 ```
-
----
-
-## Sicherheit
-
-- **API-Keys**: Umgebungsvariablen, nicht im Code
-- **File Upload**: Validierung (Typ, Größe, Content)
-- **CORS**: Konfigurierbare Origins
-- **Rate Limiting**: TODO (Production-Ready)
-- **Authentication**: TODO (Production-Ready)
-
----
-
-## Performance-Optimierung
-
-- **Async Processing**: FastAPI + asyncio
-- **Batch Embeddings**: Bis zu 32 Chunks parallel
-- **Caching**: HuggingFace Model-Cache
-- **Streaming**: SSE für Progressive Responses
-- **Vector Indexing**: HNSW (Qdrant)
