@@ -1,24 +1,11 @@
 # RAG Chat System
-Docker-based RAG (Retrieval-Augmented Generation) system
 
-## Features
+Document-based Question Answering with Retrieval-Augmented Generation.
 
-- Multi-format document upload (PDF, DOCX, TXT, MD)
-- Zotero Library Integration with **automatic polling** (every 15s)
-- **Async document processing** (background workers)
-- Multiple persistent chats
-- RAG-based question answering with reranking
-- Parent-child chunking strategy
-- Web-based interface
+![Chat Interface](docs/chat-interface.png)
+*Chat interface with document-based Q&A, source references, and relevance scores*
 
 ---
-
-## Setup (Unix/Windows)
-
-```bash
-git clone https://github.com/DuncanSARapp/SMA-Abgabe.git && cd SMA-Abgabe
-docker-compose up -d --build && docker-compose logs -f
-```
 
 
 ## Architecture
@@ -48,15 +35,34 @@ docker-compose up -d --build && docker-compose logs -f
  ┌──────────┐    ┌──────────┐    ┌──────────┐
  │  Qdrant  │    │ LLM API  │    │  Zotero  │
  │Port 6333 │    │ (Remote) │    │   API    │
- └──────────┘    └──────────┘    └──────────┘
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+---
+
+## Setup
+
+**1. Clone repository:**
+```bash
+git clone https://github.com/DuncanSARapp/SMA-Abgabe.git && cd SMA-Abgabe
+```
+
+**2. Start services:**
+```bash
+docker-compose up -d --build
+```
+
+**3. View logs (optional):**
+```bash
+docker-compose logs -f
+```
 
 | Endpoint | URL                        |
 |----------|----------------------------|
 | Frontend | http://localhost:3000      |
 | API Docs | http://localhost:8000/docs |
 
+---
 
 ## Configuration
 
@@ -67,7 +73,7 @@ docker-compose up -d --build && docker-compose logs -f
 # MINIMAL SETUP (works out of the box)
 # ============================================================================
 LLM_PROVIDER=ollama
-LLM_MODEL=phi3:mini
+LLM_MODEL=llama2
 
 # ============================================================================
 # CLOUD PROVIDERS (better quality) - Uncomment to use
@@ -86,14 +92,7 @@ LLM_MODEL=phi3:mini
 # ZOTERO_LIBRARY_TYPE=user
 ```
 
-→ See [`env.example`](./.env.example) for advanced settings (chunking, search parameters, model configurations)
-
----
-
-## Chat Interface
-
-![Chat Interface](docs/chat-interface.png)
-*Chat interface with document-based Q&A, source references, and relevance scores*
+→ See [`env.example`](./env.example) for advanced settings (chunking, search parameters, model configurations)
 
 ---
 
@@ -185,7 +184,6 @@ Interactive documentation available at **http://localhost:8000/docs** after star
 
 **Alternative Models:**
 - **Nomic Embed**: [Ollama](https://ollama.com/library/nomic-embed-text) • [Blog](https://www.nomic.ai/blog/posts/nomic-embed-text-v1)
-
 ---
 
 ## Based on n8n AI Starter Kit
