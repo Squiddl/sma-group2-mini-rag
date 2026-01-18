@@ -1,22 +1,16 @@
-# SMA Gruppe 2 - Mini-RAG-Chat-System
+# Mini-RAG-System
 
-## Prüfungsleistung
-- **[Aufgabenstellung](https://moodle.hs-mannheim.de/mod/assign/view.php?id=298501)** - Entwicklung eines RAG-basierten Chat-Systems
-
-## Teilnehmer
-|----------------|
-| Roman Butuc    |
-| Duncan Rapp    | 
-| Daniel Kühn    | 
-| Joshua Neef    |
-| Mustafa Khatib |
-| Thore Eichhorn | 
-|----------------|
-
+**Prüfungsleistung**: [Entwicklung eines RAG-basierten Chat-Systems](https://moodle.hs-mannheim.de/mod/assign/view.php?id=298501)
+ 
 ## 📚 Dokumentation
-- **[Setup](./docs/SETUP.md)** - Docker-Compose, Konfiguration, Quick Start- 
-- **[Technologie-Stack](./docs/TECHNOLOGIES.md)** - FastAPI, Qdrant, Docling, LLM-Modelle
-- **[Architektur](./docs/ARCHITECTURE.md)** - System-Design, Komponenten, RAG-Pipeline
-- **[API-Referenz](./docs/API.md)** - REST-Endpoints, Schemas, Beispiele
-- **[Performance](./docs/PERFORMANCE.md)** - Memory-Limits, GPU-Setup, Benchmarks (Windows/macOS/Linux)
+
+- **[Setup](./docs/SETUP.md)** - Quick-Start, Konfiguration, Troubleshooting
+- **[Technologie](./docs/TECHNOLOGIES.md)** - FastAPI, Qdrant, Docling, LLMs
+- **[Architektur](./docs/ARCHITECTURE.md)** - System-Design, RAG-Pipeline, Projektstruktur
+- **[API-Referenz](./docs/API.md)** - Domain-Model, Endpoints, Datenfluss
+- **[Performance](./docs/PERFORMANCE.md)** - Memory-Limits, GPU-Setup, Empfehlungen
+
 ---
+<sub>**Gruppe 2:** Roman Butuc · Duncan Rapp · Daniel Kühn · Joshua Neef · Mustafa Khatib · Thore Eichhorn</sub>
+
+<sub>*© 2026 Technische Hochschule Mannheim*</sub>
